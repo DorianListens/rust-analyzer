@@ -138,7 +138,10 @@ pub(crate) fn extract_variable(acc: &mut Assists, ctx: &AssistContext<'_>) -> Op
     )
 }
 
-fn expr_to_extract(ctx: &AssistContext, f: impl FnMut(SyntaxNode) -> Option<ast::Expr>) -> Option<ast::Expr> {
+pub(crate) fn expr_to_extract(
+    ctx: &AssistContext,
+    f: impl FnMut(SyntaxNode) -> Option<ast::Expr>,
+) -> Option<ast::Expr> {
     let node = match ctx.covering_element() {
         NodeOrToken::Node(it) => it,
         NodeOrToken::Token(it) if it.kind() == COMMENT => {
@@ -148,15 +151,14 @@ fn expr_to_extract(ctx: &AssistContext, f: impl FnMut(SyntaxNode) -> Option<ast:
         NodeOrToken::Token(it) => it.parent()?,
     };
     let node = node.ancestors().take_while(|anc| anc.text_range() == node.text_range()).last()?;
-    node
-        .descendants()
+    node.descendants()
         .take_while(|it| ctx.selection_trimmed().contains_range(it.text_range()))
         .find_map(f)
 }
 
 /// Check whether the node is a valid expression which can be extracted to a variable.
 /// In general that's true for any expression, but in some cases that would produce invalid code.
-fn valid_target_expr(node: SyntaxNode) -> Option<ast::Expr> {
+pub(crate) fn valid_target_expr(node: SyntaxNode) -> Option<ast::Expr> {
     match node.kind() {
         PATH_EXPR | LOOP_EXPR => None,
         BREAK_EXPR => ast::BreakExpr::cast(node).and_then(|e| e.expr()),
