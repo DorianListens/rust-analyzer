@@ -1420,6 +1420,38 @@ impl<'a> Cursor<'a> {
 }
 
 #[test]
+fn doctest_introduce_parameter() {
+    check_doc_test(
+        "introduce_parameter",
+        r#####"
+fn main() {
+  example_function();
+}
+
+fn example_function() {
+    let n = $01;
+    let m = n + 2;
+    // calculate
+    let k = m + n;
+    let g = 3;
+}
+"#####,
+        r#####"
+fn main() {
+  example_function(1);
+}
+
+fn example_function(n: i32) {
+    let m = n + 2;
+    // calculate
+    let k = m + n;
+    let g = 3;
+}
+"#####,
+    )
+}
+
+#[test]
 fn doctest_invert_if() {
     check_doc_test(
         "invert_if",

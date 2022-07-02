@@ -157,6 +157,7 @@ mod handlers {
     mod inline_local_variable;
     mod inline_type_alias;
     mod introduce_named_lifetime;
+    mod introduce_parameter;
     mod invert_if;
     mod merge_imports;
     mod merge_match_arms;
@@ -246,6 +247,7 @@ mod handlers {
             inline_type_alias::inline_type_alias_uses,
             introduce_named_generic::introduce_named_generic,
             introduce_named_lifetime::introduce_named_lifetime,
+            introduce_parameter::introduce_parameter,
             invert_if::invert_if,
             merge_imports::merge_imports,
             merge_match_arms::merge_match_arms,
