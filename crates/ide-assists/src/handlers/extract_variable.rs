@@ -32,19 +32,7 @@ pub(crate) fn extract_variable(acc: &mut Assists, ctx: &AssistContext<'_>) -> Op
         return None;
     }
 
-    let node = match ctx.covering_element() {
-        NodeOrToken::Node(it) => it,
-        NodeOrToken::Token(it) if it.kind() == COMMENT => {
-            cov_mark::hit!(extract_var_in_comment_is_not_applicable);
-            return None;
-        }
-        NodeOrToken::Token(it) => it.parent()?,
-    };
-    let node = node.ancestors().take_while(|anc| anc.text_range() == node.text_range()).last()?;
-    let to_extract = node
-        .descendants()
-        .take_while(|it| ctx.selection_trimmed().contains_range(it.text_range()))
-        .find_map(valid_target_expr)?;
+    let to_extract = expr_to_extract(ctx, valid_target_expr)?;
 
     if let Some(ty_info) = ctx.sema.type_of_expr(&to_extract) {
         if ty_info.adjusted().is_unit() {
@@ -148,6 +136,22 @@ pub(crate) fn extract_variable(acc: &mut Assists, ctx: &AssistContext<'_>) -> Op
             }
         },
     )
+}
+
+fn expr_to_extract(ctx: &AssistContext, f: impl FnMut(SyntaxNode) -> Option<ast::Expr>) -> Option<ast::Expr> {
+    let node = match ctx.covering_element() {
+        NodeOrToken::Node(it) => it,
+        NodeOrToken::Token(it) if it.kind() == COMMENT => {
+            cov_mark::hit!(extract_var_in_comment_is_not_applicable);
+            return None;
+        }
+        NodeOrToken::Token(it) => it.parent()?,
+    };
+    let node = node.ancestors().take_while(|anc| anc.text_range() == node.text_range()).last()?;
+    node
+        .descendants()
+        .take_while(|it| ctx.selection_trimmed().contains_range(it.text_range()))
+        .find_map(f)
 }
 
 /// Check whether the node is a valid expression which can be extracted to a variable.
