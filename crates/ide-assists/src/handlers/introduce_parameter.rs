@@ -5,7 +5,7 @@ use ide_db::{
 use syntax::{
     algo::find_node_at_range,
     ast::{self, make, HasArgList},
-    AstNode, SyntaxNode,
+    AstNode, SyntaxKind, SyntaxNode, TextRange,
 };
 
 use crate::{
@@ -29,7 +29,7 @@ use super::{
 // }
 //
 // fn example_function() {
-//     let n = $01;
+//     let n = $01$0;
 //     let m = n + 2;
 // }
 // ```
@@ -96,7 +96,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 
             let param_name = match &field_shorthand {
                 Some(it) => it.to_string(),
-                None => suggest_name::for_variable(&to_extract, &ctx.sema),
+                None => suggest_name_for_param(&to_extract, ctx),
             };
 
             let param = make_param(ctx, &param_name, &ty, module);
@@ -123,17 +123,41 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
     )
 }
 
+fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext) -> String {
+    if let Some(let_stmt) = to_extract.syntax().parent().map(ast::LetStmt::cast).flatten() {
+        return let_stmt.pat().unwrap().to_string();
+    }
+    suggest_name::for_variable(to_extract, &ctx.sema)
+}
+
 fn replace_expr_with_name(
     edit: &mut AssistBuilder,
     field_shorthand: Option<ast::NameRef>,
     to_extract: &ast::Expr,
     param_name: &str,
 ) {
-    let expr_range = match &field_shorthand {
-        Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
-        None => to_extract.syntax().text_range(),
-    };
-    edit.replace(expr_range, param_name);
+    if let Some(let_stmt) = to_extract.syntax().parent().map(ast::LetStmt::cast).flatten() {
+        let text_range = let_stmt.syntax().text_range();
+        let start = let_stmt
+            .let_token()
+            .unwrap()
+            .prev_token()
+            .and_then(|prev| {
+                if prev.kind() == SyntaxKind::WHITESPACE {
+                    Some(prev.text_range().start())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(text_range.start());
+        edit.delete(TextRange::new(start, text_range.end()));
+    } else {
+        let expr_range = match &field_shorthand {
+            Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
+            None => to_extract.syntax().text_range(),
+        };
+        edit.replace(expr_range, param_name);
+    }
 }
 
 fn add_param_to_param_list(edit: &mut AssistBuilder, func: ast::Fn, param: ast::Param) {
@@ -230,8 +254,7 @@ fn main() {
   example_function(1);
 }
 
-fn example_function(var_name: i32) {
-    let n = var_name;
+fn example_function(n: i32) {
     let m = n + 2;
 }
             "#,
@@ -257,8 +280,7 @@ fn main() {
   example_function(1, 2, 3);
 }
 
-fn example_function(a: i32, b: i32, var_name: i32) {
-    let n = var_name;
+fn example_function(a: i32, b: i32, n: i32) {
     let m = n + 2;
 }
             "#,
@@ -268,8 +290,7 @@ fn example_function(a: i32, b: i32, var_name: i32) {
     // Next Steps
     // - Make work for method calls
     //   - With and without self param
-    // - Special Case Let Statements?
+    // - Support cursor
     // - Support Ref + Mut
-    // - Support both Snippet modes
     // - Filter out some exprs that won't work
 }

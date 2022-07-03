@@ -1429,11 +1429,8 @@ fn main() {
 }
 
 fn example_function() {
-    let n = $01;
+    let n = $01$0;
     let m = n + 2;
-    // calculate
-    let k = m + n;
-    let g = 3;
 }
 "#####,
         r#####"
@@ -1443,9 +1440,6 @@ fn main() {
 
 fn example_function(n: i32) {
     let m = n + 2;
-    // calculate
-    let k = m + n;
-    let g = 3;
 }
 "#####,
     )
