@@ -1,7 +1,7 @@
-use ide_db::assists::{AssistId, AssistKind};
+use ide_db::{assists::{AssistId, AssistKind}, defs::Definition};
 use syntax::{
-    ast::{self, make},
-    AstNode, SyntaxNode,
+    ast::{self, make, HasArgList},
+    AstNode, SyntaxNode, algo::find_node_at_range,
 };
 
 use crate::{
@@ -55,6 +55,10 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 
     // - Check if we're in a function body
     let func = parent_fn(&to_extract.syntax())?;
+    let fn_def = {
+        let func = ctx.sema.to_def(&func)?;
+        Definition::Function(func)
+    };
     // - Can't be trait impl, but can be method
     if within_trait_impl(&func) {
         cov_mark::hit!(test_not_applicable_in_trait_impl);
@@ -96,7 +100,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
             let param = make_param(ctx, &param_name, &ty, module);
             let param_list = func.param_list().unwrap();
             let offset = param_list.r_paren_token().unwrap().text_range().start();
-            edit.insert(offset, param.to_string());
+            edit.insert(offset, format!("$0{}", param));
 
             // - Replace expression with Name
             //   - Exactly like extract_variable
@@ -107,10 +111,19 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
             edit.replace(expr_range, param_name.clone());
 
             // - Find all call sites
-            // - Place expression in arg list for all call sites
-            //   - Will we need to manually qualify names, or will that "just work"?
-            //   - Kinda like the opposite of remove_unused_parameter
-            // let literal = ctx.find_node_at_offset::<ast::Literal>()?;
+            for (file_id, references) in fn_def.usages(&ctx.sema).all() {
+                // - Place expression in arg list for all call sites
+                //   - Will we need to manually qualify names, or will that "just work"?
+                //   - Kinda like the opposite of remove_unused_parameter
+                let source_file = ctx.sema.parse(file_id);
+                edit.edit_file(file_id);
+                for usage in references {
+                    if let Some(call_expr) = find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range) {
+                        let offset = call_expr.arg_list().unwrap().r_paren_token().unwrap().text_range().start();
+                        edit.insert(offset, to_extract.to_string());
+                    }
+                }
+            }
         },
     )
 }
@@ -203,7 +216,8 @@ fn main() {
   example_function(1);
 }
 
-fn example_function($0n: i32) {
+fn example_function($0var_name: i32) {
+    let n = var_name;
     let m = n + 2;
 }
             "#,
