@@ -66,8 +66,6 @@ pub(crate) fn extract_variable(acc: &mut Assists, ctx: &AssistContext<'_>) -> Op
                     None => None,
                 };
 
-            let mut buf = String::new();
-
             let var_name = match &field_shorthand {
                 Some(it) => it.to_string(),
                 None => suggest_name::for_variable(&to_extract, &ctx.sema),
@@ -76,6 +74,8 @@ pub(crate) fn extract_variable(acc: &mut Assists, ctx: &AssistContext<'_>) -> Op
                 Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
                 None => to_extract.syntax().text_range(),
             };
+
+            let mut buf = String::new();
 
             match anchor {
                 Anchor::Before(_) | Anchor::Replace(_) => {
