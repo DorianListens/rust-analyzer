@@ -95,20 +95,14 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
                 None => suggest_name::for_variable(&to_extract, &ctx.sema),
             };
 
-            // - Add Name: Type to function's param list
-            //   - Kinda like the opposite of remove_unused_parameter
-            let param = make_param(ctx, &param_name, &ty, module);
-            let param_list = func.param_list().unwrap();
-            let offset = param_list.r_paren_token().unwrap().text_range().start();
-            edit.insert(offset, format!("$0{}", param));
+            // - Add Param to function's param list
+            add_param_to_param_list(ctx, &param_name, ty, module, func, edit);
 
-            // - Replace expression with Name
-            //   - Exactly like extract_variable
             let expr_range = match &field_shorthand {
                 Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
                 None => to_extract.syntax().text_range(),
             };
-            edit.replace(expr_range, param_name.clone());
+            edit.replace(expr_range, &param_name);
 
             // - Find all call sites
             for (file_id, references) in fn_def.usages(&ctx.sema).all() {
@@ -119,13 +113,29 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
                 edit.edit_file(file_id);
                 for usage in references {
                     if let Some(call_expr) = find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range) {
-                        let offset = call_expr.arg_list().unwrap().r_paren_token().unwrap().text_range().start();
-                        edit.insert(offset, to_extract.to_string());
+                        let call_expr = edit.make_mut(call_expr);
+                        call_expr.arg_list().unwrap().add_arg(to_extract.clone_for_update())
                     }
                 }
             }
         },
     )
+}
+
+fn add_param_to_param_list(ctx: &AssistContext, param_name: &String, ty: hir::Type, module: hir::Module, func: ast::Fn, edit: &mut crate::assist_context::AssistBuilder) {
+    let param = make_param(ctx, param_name, &ty, module);
+    let fn_ = edit.make_mut(func);
+    fn_.get_or_create_param_list().add_param(param);
+
+    fn_.get_or_create_param_list().params().last().and_then(|it| {
+        place_cursor_before(edit, it.syntax())
+    });
+}
+
+fn place_cursor_before(edit: &mut crate::assist_context::AssistBuilder, node: &SyntaxNode) -> Option<()> {
+    let offset = node.text_range().start();
+    edit.insert(offset, "$0");
+    Some(())
 }
 
 fn make_param(
@@ -138,7 +148,7 @@ fn make_param(
     let pat = make::ext::simple_ident_pat(name);
     let ty = make_ty(ty, ctx, module);
 
-    make::param(pat.into(), ty)
+    make::param(pat.into(), ty).clone_for_update()
 }
 
 fn within_trait_impl(func: &ast::Fn) -> bool {

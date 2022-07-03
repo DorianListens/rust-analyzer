@@ -442,6 +442,35 @@ impl ast::Fn {
         }
         self.body().unwrap()
     }
+
+    pub fn get_or_create_param_list(&self) -> ast::ParamList {
+        self.param_list().unwrap_or_else(|| {
+            let param_list = make::param_list(None, empty()).clone_for_update();
+            let position = Position::after(self.name().unwrap().syntax());
+            ted::insert_raw(position, param_list.syntax());
+            param_list
+        })
+    }
+}
+
+impl ast::ParamList {
+    pub fn add_param(&self, param: ast::Param) {
+        match self.params().last() {
+            Some(last_param) => {
+                let position = Position::after(last_param.syntax());
+                let elements = vec![
+                    make::token(T![,]).into(),
+                    make::tokens::single_space().into(),
+                    param.syntax().clone().into(),
+                ];
+                ted::insert_all(position, elements);
+            }
+            None => {
+                let after_l_paren = Position::after(self.l_paren_token().unwrap());
+                ted::insert_raw(after_l_paren, param.syntax());
+            }
+        }
+    }
 }
 
 impl ast::MatchArm {
@@ -627,6 +656,26 @@ impl ast::VariantList {
             ast::make::token(T![,]).into(),
         ];
         ted::insert_all(position, elements);
+    }
+}
+
+impl ast::ArgList {
+    pub fn add_arg(&self, arg: ast::Expr) {
+        match self.args().last() {
+            Some(last_param) => {
+                let position = Position::after(last_param.syntax());
+                let elements = vec![
+                    make::token(T![,]).into(),
+                    make::tokens::single_space().into(),
+                    arg.syntax().clone().into(),
+                ];
+                ted::insert_all_raw(position, elements);
+            }
+            None => {
+                let after_l_paren = Position::after(self.l_paren_token().unwrap());
+                ted::insert_raw(after_l_paren, arg.syntax());
+            }
+        }
     }
 }
 
