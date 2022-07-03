@@ -456,21 +456,26 @@ impl ast::Fn {
 impl ast::ParamList {
     pub fn add_param(&self, param: ast::Param) {
         match self.params().last() {
-            Some(last_param) => {
-                let position = Position::after(last_param.syntax());
-                let elements = vec![
-                    make::token(T![,]).into(),
-                    make::tokens::single_space().into(),
-                    param.syntax().clone().into(),
-                ];
-                ted::insert_all_raw(position, elements);
-            }
-            None => {
-                let after_l_paren = Position::after(self.l_paren_token().unwrap());
-                ted::insert_raw(after_l_paren, param.syntax());
-            }
+            Some(last_param) => insert_into_list_after(last_param.syntax(), &param),
+            None => match self.self_param() {
+                Some(self_param) => insert_into_list_after(&self_param.syntax(), &param),
+                None => {
+                    let after_l_paren = Position::after(self.l_paren_token().unwrap());
+                    ted::insert_raw(after_l_paren, param.syntax());
+                }
+            },
         }
     }
+}
+
+fn insert_into_list_after(elem: &SyntaxNode, param: &ast::Param) {
+    let position = Position::after(elem);
+    let elements = vec![
+        make::token(T![,]).into(),
+        make::tokens::single_space().into(),
+        param.syntax().clone().into(),
+    ];
+    ted::insert_all_raw(position, elements);
 }
 
 impl ast::MatchArm {

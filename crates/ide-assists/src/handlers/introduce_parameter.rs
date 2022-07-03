@@ -4,7 +4,7 @@ use ide_db::{
 };
 use syntax::{
     algo::find_node_at_range,
-    ast::{self, make, HasArgList},
+    ast::{self, make},
     AstNode, SyntaxKind, SyntaxNode, TextRange,
 };
 
@@ -87,7 +87,6 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
         move |edit| {
             // Execute
             // - Pick name for parameter
-            //   - Use exact same heuristics from extract variable (suggest_name::for_variable)
             let field_shorthand =
                 match to_extract.syntax().parent().and_then(ast::RecordExprField::cast) {
                     Some(field) => field.name_ref(),
@@ -102,7 +101,12 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
             let param = make_param(ctx, &param_name, &ty, module);
             add_param_to_param_list(edit, func, param);
 
-            replace_expr_with_name(edit, field_shorthand, &to_extract, &param_name);
+            replace_expr_with_name_or_remove_let_stmt(
+                edit,
+                field_shorthand,
+                &to_extract,
+                &param_name,
+            );
 
             // - Find all call sites
             for (file_id, references) in fn_def.usages(&ctx.sema).all() {
@@ -114,13 +118,25 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
                     if let Some(call_expr) =
                         find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range)
                     {
-                        let call_expr = edit.make_mut(call_expr);
-                        call_expr.arg_list().unwrap().add_arg(to_extract.clone_for_update())
+                        add_expr_to_arg_list(edit, call_expr, &to_extract);
+                    } else if let Some(method_expr) =
+                        find_node_at_range::<ast::MethodCallExpr>(source_file.syntax(), usage.range)
+                    {
+                        add_expr_to_arg_list(edit, method_expr, &to_extract);
                     }
                 }
             }
         },
     )
+}
+
+fn add_expr_to_arg_list<CallType: ast::HasArgList>(
+    edit: &mut AssistBuilder,
+    call_expr: CallType,
+    to_extract: &ast::Expr,
+) {
+    let call_expr = edit.make_mut(call_expr);
+    call_expr.arg_list().unwrap().add_arg(to_extract.clone_for_update())
 }
 
 fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext) -> String {
@@ -130,7 +146,7 @@ fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext) -> String
     suggest_name::for_variable(to_extract, &ctx.sema)
 }
 
-fn replace_expr_with_name(
+fn replace_expr_with_name_or_remove_let_stmt(
     edit: &mut AssistBuilder,
     field_shorthand: Option<ast::NameRef>,
     to_extract: &ast::Expr,
@@ -287,9 +303,72 @@ fn example_function(a: i32, b: i32, n: i32) {
         )
     }
 
+    #[test]
+    fn strukt_impl() {
+        check_assist(
+            introduce_parameter,
+            r#"
+struct Foo;
+fn main() {
+    Foo::example_function();
+}
+
+impl Foo {
+    fn example_function() {
+        $0let n = 1;$0
+        let m = n + 2;
+    }
+}
+            "#,
+            r#"
+struct Foo;
+fn main() {
+    Foo::example_function(1);
+}
+
+impl Foo {
+    fn example_function(n: i32) {
+        let m = n + 2;
+    }
+}
+            "#,
+        )
+    }
+
+    #[test]
+    fn method_call() {
+        check_assist(
+            introduce_parameter,
+            r#"
+struct Foo;
+fn main() {
+    let f = Foo;
+    f.example();
+}
+
+impl Foo {
+    fn example(&self) {
+        $0let n = 1;$0
+        let m = n + 2;
+    }
+}
+            "#,
+            r#"
+struct Foo;
+fn main() {
+    let f = Foo;
+    f.example(1);
+}
+
+impl Foo {
+    fn example(&self, n: i32) {
+        let m = n + 2;
+    }
+}
+            "#,
+        )
+    }
     // Next Steps
-    // - Make work for method calls
-    //   - With and without self param
     // - Support cursor
     // - Support Ref + Mut
     // - Filter out some exprs that won't work
