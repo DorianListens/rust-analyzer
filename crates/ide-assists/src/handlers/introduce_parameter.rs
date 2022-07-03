@@ -100,6 +100,11 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 
             // - Replace expression with Name
             //   - Exactly like extract_variable
+            let expr_range = match &field_shorthand {
+                Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
+                None => to_extract.syntax().text_range(),
+            };
+            edit.replace(expr_range, param_name.clone());
 
             // - Find all call sites
             // - Place expression in arg list for all call sites
