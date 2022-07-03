@@ -1,11 +1,15 @@
-use ide_db::{assists::{AssistId, AssistKind}, defs::Definition};
+use ide_db::{
+    assists::{AssistId, AssistKind},
+    defs::Definition,
+};
 use syntax::{
+    algo::find_node_at_range,
     ast::{self, make, HasArgList},
-    AstNode, SyntaxNode, algo::find_node_at_range,
+    AstNode, SyntaxNode,
 };
 
 use crate::{
-    assist_context::{AssistContext, Assists},
+    assist_context::{AssistBuilder, AssistContext, Assists},
     utils::suggest_name,
 };
 
@@ -106,13 +110,14 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 
             // - Find all call sites
             for (file_id, references) in fn_def.usages(&ctx.sema).all() {
-                // - Place expression in arg list for all call sites
-                //   - Will we need to manually qualify names, or will that "just work"?
-                //   - Kinda like the opposite of remove_unused_parameter
                 let source_file = ctx.sema.parse(file_id);
                 edit.edit_file(file_id);
                 for usage in references {
-                    if let Some(call_expr) = find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range) {
+                    // - Place expression in arg list for all call sites
+                    //   - Will we need to manually qualify names, or will that "just work"?
+                    if let Some(call_expr) =
+                        find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range)
+                    {
                         let call_expr = edit.make_mut(call_expr);
                         call_expr.arg_list().unwrap().add_arg(to_extract.clone_for_update())
                     }
@@ -122,17 +127,25 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
     )
 }
 
-fn add_param_to_param_list(ctx: &AssistContext, param_name: &String, ty: hir::Type, module: hir::Module, func: ast::Fn, edit: &mut crate::assist_context::AssistBuilder) {
+fn add_param_to_param_list(
+    ctx: &AssistContext,
+    param_name: &String,
+    ty: hir::Type,
+    module: hir::Module,
+    func: ast::Fn,
+    edit: &mut AssistBuilder,
+) {
     let param = make_param(ctx, param_name, &ty, module);
     let fn_ = edit.make_mut(func);
     fn_.get_or_create_param_list().add_param(param);
 
-    fn_.get_or_create_param_list().params().last().and_then(|it| {
-        place_cursor_before(edit, it.syntax())
-    });
+    fn_.get_or_create_param_list()
+        .params()
+        .last()
+        .and_then(|it| place_cursor_before(edit, it.syntax()));
 }
 
-fn place_cursor_before(edit: &mut crate::assist_context::AssistBuilder, node: &SyntaxNode) -> Option<()> {
+fn place_cursor_before(edit: &mut AssistBuilder, node: &SyntaxNode) -> Option<()> {
     let offset = node.text_range().start();
     edit.insert(offset, "$0");
     Some(())
