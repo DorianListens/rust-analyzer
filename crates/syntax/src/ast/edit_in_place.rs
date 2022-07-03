@@ -463,7 +463,7 @@ impl ast::ParamList {
                     make::tokens::single_space().into(),
                     param.syntax().clone().into(),
                 ];
-                ted::insert_all(position, elements);
+                ted::insert_all_raw(position, elements);
             }
             None => {
                 let after_l_paren = Position::after(self.l_paren_token().unwrap());

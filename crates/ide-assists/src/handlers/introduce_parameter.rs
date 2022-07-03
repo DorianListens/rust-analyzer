@@ -99,14 +99,10 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
                 None => suggest_name::for_variable(&to_extract, &ctx.sema),
             };
 
-            // - Add Param to function's param list
-            add_param_to_param_list(ctx, &param_name, ty, module, func, edit);
+            let param = make_param(ctx, &param_name, &ty, module);
+            add_param_to_param_list(edit, func, param);
 
-            let expr_range = match &field_shorthand {
-                Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
-                None => to_extract.syntax().text_range(),
-            };
-            edit.replace(expr_range, &param_name);
+            replace_expr_with_name(edit, field_shorthand, &to_extract, &param_name);
 
             // - Find all call sites
             for (file_id, references) in fn_def.usages(&ctx.sema).all() {
@@ -127,28 +123,23 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
     )
 }
 
-fn add_param_to_param_list(
-    ctx: &AssistContext,
-    param_name: &String,
-    ty: hir::Type,
-    module: hir::Module,
-    func: ast::Fn,
+fn replace_expr_with_name(
     edit: &mut AssistBuilder,
+    field_shorthand: Option<ast::NameRef>,
+    to_extract: &ast::Expr,
+    param_name: &str,
 ) {
-    let param = make_param(ctx, param_name, &ty, module);
-    let fn_ = edit.make_mut(func);
-    fn_.get_or_create_param_list().add_param(param);
-
-    fn_.get_or_create_param_list()
-        .params()
-        .last()
-        .and_then(|it| place_cursor_before(edit, it.syntax()));
+    let expr_range = match &field_shorthand {
+        Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
+        None => to_extract.syntax().text_range(),
+    };
+    edit.replace(expr_range, param_name);
 }
 
-fn place_cursor_before(edit: &mut AssistBuilder, node: &SyntaxNode) -> Option<()> {
-    let offset = node.text_range().start();
-    edit.insert(offset, "$0");
-    Some(())
+fn add_param_to_param_list(edit: &mut AssistBuilder, func: ast::Fn, param: ast::Param) {
+    let fn_ = edit.make_mut(func);
+    let param_list = fn_.get_or_create_param_list();
+    param_list.add_param(param.clone_for_update());
 }
 
 fn make_param(
@@ -161,7 +152,7 @@ fn make_param(
     let pat = make::ext::simple_ident_pat(name);
     let ty = make_ty(ty, ctx, module);
 
-    make::param(pat.into(), ty).clone_for_update()
+    make::param(pat.into(), ty)
 }
 
 fn within_trait_impl(func: &ast::Fn) -> bool {
@@ -239,11 +230,46 @@ fn main() {
   example_function(1);
 }
 
-fn example_function($0var_name: i32) {
+fn example_function(var_name: i32) {
     let n = var_name;
     let m = n + 2;
 }
             "#,
         )
     }
+
+    #[test]
+    fn with_multiple_params() {
+        check_assist(
+            introduce_parameter,
+            r#"
+fn main() {
+  example_function(1, 2);
+}
+
+fn example_function(a: i32, b: i32) {
+    $0let n = 3;$0
+    let m = n + 2;
+}
+            "#,
+            r#"
+fn main() {
+  example_function(1, 2, 3);
+}
+
+fn example_function(a: i32, b: i32, var_name: i32) {
+    let n = var_name;
+    let m = n + 2;
+}
+            "#,
+        )
+    }
+
+    // Next Steps
+    // - Make work for method calls
+    //   - With and without self param
+    // - Special Case Let Statements?
+    // - Support Ref + Mut
+    // - Support both Snippet modes
+    // - Filter out some exprs that won't work
 }
