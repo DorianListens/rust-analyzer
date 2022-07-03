@@ -1,6 +1,7 @@
 use ide_db::{
     assists::{AssistId, AssistKind},
     defs::Definition,
+    search::FileReference,
 };
 use syntax::{
     algo::find_node_at_range,
@@ -103,31 +104,43 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 
             replace_expr_with_name_or_remove_let_stmt(
                 edit,
-                field_shorthand,
+                &field_shorthand,
                 &to_extract,
                 &param_name,
             );
 
             // - Find all call sites
-            for (file_id, references) in fn_def.usages(&ctx.sema).all() {
+            let usages = fn_def.usages(&ctx.sema).all();
+
+            for (file_id, references) in usages {
                 let source_file = ctx.sema.parse(file_id);
                 edit.edit_file(file_id);
                 for usage in references {
-                    // - Place expression in arg list for all call sites
-                    //   - Will we need to manually qualify names, or will that "just work"?
-                    if let Some(call_expr) =
-                        find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range)
-                    {
-                        add_expr_to_arg_list(edit, call_expr, &to_extract);
-                    } else if let Some(method_expr) =
-                        find_node_at_range::<ast::MethodCallExpr>(source_file.syntax(), usage.range)
-                    {
-                        add_expr_to_arg_list(edit, method_expr, &to_extract);
-                    }
+                    add_new_arg_to_call_site(edit, &source_file, usage, &to_extract);
                 }
             }
         },
     )
+}
+
+fn add_new_arg_to_call_site(
+    edit: &mut AssistBuilder,
+    source_file: &syntax::SourceFile,
+    usage: FileReference,
+    to_extract: &ast::Expr,
+) {
+    // - Will we need to manually qualify names, or will that "just work"?
+    if let Some(call_expr) = find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range)
+    {
+        let range = call_expr.expr().unwrap().syntax().text_range();
+        if range.contains_range(usage.range) {
+            add_expr_to_arg_list(edit, call_expr, to_extract);
+        }
+    } else if let Some(method_expr) =
+        find_node_at_range::<ast::MethodCallExpr>(source_file.syntax(), usage.range)
+    {
+        add_expr_to_arg_list(edit, method_expr, to_extract);
+    }
 }
 
 fn add_expr_to_arg_list<CallType: ast::HasArgList>(
@@ -136,11 +149,11 @@ fn add_expr_to_arg_list<CallType: ast::HasArgList>(
     to_extract: &ast::Expr,
 ) {
     let call_expr = edit.make_mut(call_expr);
-    call_expr.arg_list().unwrap().add_arg(to_extract.clone_for_update())
+    call_expr.arg_list().and_then(|it| Some(it.add_arg(to_extract.clone_for_update())));
 }
 
 fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext) -> String {
-    if let Some(let_stmt) = to_extract.syntax().parent().map(ast::LetStmt::cast).flatten() {
+    if let Some(let_stmt) = to_extract.syntax().parent().and_then(ast::LetStmt::cast) {
         return let_stmt.pat().unwrap().to_string();
     }
     suggest_name::for_variable(to_extract, &ctx.sema)
@@ -148,32 +161,36 @@ fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext) -> String
 
 fn replace_expr_with_name_or_remove_let_stmt(
     edit: &mut AssistBuilder,
-    field_shorthand: Option<ast::NameRef>,
+    field_shorthand: &Option<ast::NameRef>,
     to_extract: &ast::Expr,
     param_name: &str,
 ) {
-    if let Some(let_stmt) = to_extract.syntax().parent().map(ast::LetStmt::cast).flatten() {
-        let text_range = let_stmt.syntax().text_range();
-        let start = let_stmt
-            .let_token()
-            .unwrap()
-            .prev_token()
-            .and_then(|prev| {
-                if prev.kind() == SyntaxKind::WHITESPACE {
-                    Some(prev.text_range().start())
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(text_range.start());
-        edit.delete(TextRange::new(start, text_range.end()));
+    if let Some(let_stmt) = to_extract.syntax().parent().and_then(ast::LetStmt::cast) {
+        remove_let_stmt(edit, let_stmt);
     } else {
-        let expr_range = match &field_shorthand {
+        let expr_range = match field_shorthand {
             Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
             None => to_extract.syntax().text_range(),
         };
         edit.replace(expr_range, param_name);
     }
+}
+
+fn remove_let_stmt(edit: &mut AssistBuilder, let_stmt: ast::LetStmt) {
+    let text_range = let_stmt.syntax().text_range();
+    let start = let_stmt
+        .let_token()
+        .unwrap()
+        .prev_token()
+        .and_then(|prev| {
+            if prev.kind() == SyntaxKind::WHITESPACE {
+                Some(prev.text_range().start())
+            } else {
+                None
+            }
+        })
+        .unwrap_or(text_range.start());
+    edit.delete(TextRange::new(start, text_range.end()));
 }
 
 fn add_param_to_param_list(edit: &mut AssistBuilder, func: ast::Fn, param: ast::Param) {
