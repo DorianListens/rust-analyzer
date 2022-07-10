@@ -5,7 +5,7 @@ use ide_db::{
 };
 use syntax::{
     algo::find_node_at_range,
-    ast::{self, make},
+    ast::{self, make, HasArgList},
     AstNode, SyntaxKind, SyntaxNode, TextRange,
 };
 
@@ -115,40 +115,50 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
             for (file_id, references) in usages {
                 let source_file = ctx.sema.parse(file_id);
                 edit.edit_file(file_id);
-                for usage in references {
-                    add_new_arg_to_call_site(edit, &source_file, usage, &to_extract);
-                }
+                let call_sites: Vec<CallSite> = references
+                    .iter()
+                    .filter_map(|it| find_call_site(edit, &source_file, it))
+                    .collect();
+                call_sites.into_iter().for_each(|it| add_expr_to_arg_list(it, &to_extract));
             }
         },
     )
 }
 
-fn add_new_arg_to_call_site(
+fn find_call_site(
     edit: &mut AssistBuilder,
     source_file: &syntax::SourceFile,
-    usage: FileReference,
-    to_extract: &ast::Expr,
-) {
-    // - Will we need to manually qualify names, or will that "just work"?
+    usage: &FileReference,
+) -> Option<CallSite> {
     if let Some(call_expr) = find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range)
     {
-        let range = call_expr.expr().unwrap().syntax().text_range();
-        if range.contains_range(usage.range) {
-            add_expr_to_arg_list(edit, call_expr, to_extract);
-        }
+        Some(CallSite::Call(edit.make_mut(call_expr)))
     } else if let Some(method_expr) =
         find_node_at_range::<ast::MethodCallExpr>(source_file.syntax(), usage.range)
     {
-        add_expr_to_arg_list(edit, method_expr, to_extract);
+        Some(CallSite::MethodCall(edit.make_mut(method_expr)))
+    } else {
+        None
     }
 }
 
-fn add_expr_to_arg_list<CallType: ast::HasArgList>(
-    edit: &mut AssistBuilder,
-    call_expr: CallType,
-    to_extract: &ast::Expr,
-) {
-    let call_expr = edit.make_mut(call_expr);
+enum CallSite {
+    Call(ast::CallExpr),
+    MethodCall(ast::MethodCallExpr),
+}
+
+impl CallSite {
+    fn arg_list(&self) -> Option<ast::ArgList> {
+        match self {
+            CallSite::Call(it) => it.arg_list(),
+            CallSite::MethodCall(it) => it.arg_list(),
+        }
+    }
+}
+
+fn add_expr_to_arg_list(call_expr: CallSite, to_extract: &ast::Expr) {
+    // - Will we need to manually qualify names, or will that "just work"?
+    // If we want this to work, we'll need a path transform.
     call_expr.arg_list().and_then(|it| Some(it.add_arg(to_extract.clone_for_update())));
 }
 
@@ -385,6 +395,49 @@ impl Foo {
             "#,
         )
     }
+
+    #[test]
+    fn multiple_files() {
+        check_assist(
+            introduce_parameter,
+            r#"
+//- /main.rs
+fn main() {
+  example_function();
+}
+
+fn example_function() {
+    $0let n = 1;$0
+    let m = n + 2;
+}
+mod foo;
+//- /foo.rs
+use crate::example_function;
+fn f() {
+    example_function();
+    example_function();
+}
+            "#,
+            r#"
+//- /main.rs
+fn main() {
+  example_function(1);
+}
+
+fn example_function(n: i32) {
+    let m = n + 2;
+}
+mod foo;
+//- /foo.rs
+use crate::example_function;
+fn f() {
+    example_function(1);
+    example_function(1);
+}
+            "#,
+        )
+    }
+
     // Next Steps
     // - Support cursor
     // - Support Ref + Mut
