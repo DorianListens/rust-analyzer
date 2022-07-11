@@ -1,12 +1,13 @@
+use hir::Semantics;
 use ide_db::{
     assists::{AssistId, AssistKind},
     defs::Definition,
-    search::FileReference,
+    search::FileReference, RootDatabase,
 };
 use syntax::{
     algo::find_node_at_range,
     ast::{self, make, HasArgList},
-    AstNode, SyntaxKind, SyntaxNode, TextRange,
+    AstNode, SyntaxKind, SyntaxNode, TextRange, SyntaxElement, NodeOrToken,
 };
 
 use crate::{
@@ -117,21 +118,39 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
                 edit.edit_file(file_id);
                 let call_sites: Vec<CallSite> = references
                     .iter()
-                    .filter_map(|it| find_call_site(edit, &source_file, it))
+                    .filter_map(|it| find_call_site(&ctx.sema, edit, &source_file, it))
                     .collect();
-                call_sites.into_iter().for_each(|it| add_expr_to_arg_list(it, &to_extract));
+                call_sites.into_iter().for_each(|it| it.add_arg(&to_extract));
             }
         },
     )
 }
 
 fn find_call_site(
+    sema: &Semantics<RootDatabase>,
     edit: &mut AssistBuilder,
     source_file: &syntax::SourceFile,
     usage: &FileReference,
 ) -> Option<CallSite> {
-    if let Some(call_expr) = find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range)
+    if let Some(macro_call) =
+        find_node_at_range::<ast::MacroCall>(source_file.syntax(), usage.range)
     {
+        let tt = macro_call.token_tree()?;
+        let r_delimiter = NodeOrToken::Token(tt.right_delimiter_token()?);
+        let children: Vec<_> = tt.syntax()
+        .children_with_tokens()
+        .skip(1) // The l delimiter
+        .take_while(|it| *it != r_delimiter)
+        // .flat_map(SyntaxElement::into_token)
+        // .filter(|it| it.kind() == SyntaxKind::IDENT)
+        // .flat_map(|it| sema.descend_into_macros(it))
+        .collect();
+
+        dbg!(children);
+        None
+    } else if let Some(call_expr) = find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range)
+    {
+        dbg!(&call_expr);
         Some(CallSite::Call(edit.make_mut(call_expr)))
     } else if let Some(method_expr) =
         find_node_at_range::<ast::MethodCallExpr>(source_file.syntax(), usage.range)
@@ -154,12 +173,12 @@ impl CallSite {
             CallSite::MethodCall(it) => it.arg_list(),
         }
     }
-}
 
-fn add_expr_to_arg_list(call_expr: CallSite, to_extract: &ast::Expr) {
-    // - Will we need to manually qualify names, or will that "just work"?
-    // If we want this to work, we'll need a path transform.
-    call_expr.arg_list().and_then(|it| Some(it.add_arg(to_extract.clone_for_update())));
+    fn add_arg(&self, expr: &ast::Expr) {
+        // - Will we need to manually qualify names, or will that "just work"?
+        // If we want this to work, we'll need a path transform.
+        self.arg_list().and_then(|it| Some(it.add_arg(expr.clone_for_update())));
+    }
 }
 
 fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext) -> String {
@@ -438,7 +457,89 @@ fn f() {
         )
     }
 
+    #[test]
+    fn nested_call() {
+        check_assist(
+            introduce_parameter,
+            r#"
+fn main() {
+  bar(
+    foo()
+  )
+}
+
+fn bar(n: i32) {}
+
+fn foo() -> i32 {
+    $0let n = 1;$0
+    n + 2
+}
+            "#,
+            r#"
+fn main() {
+  bar(
+    foo(1)
+  )
+}
+
+fn bar(n: i32) {}
+
+fn foo(n: i32) -> i32 {
+    n + 2
+}
+            "#,
+        )
+    }
+
+    #[test]
+    fn call_within_macro() {
+        check_assist(
+            introduce_parameter,
+            r#"
+struct Vec<T>;
+macro_rules! vec {
+   ($($item:expr),*) => {{
+           let mut v = Vec::new();
+           $( v.push($item); )*
+           v
+    }};
+}
+fn main() {
+  bar(vec![foo()])
+}
+
+fn bar(v: Vec<i32>) {}
+
+fn foo() -> i32 {
+    $0let n = 1;$0
+    n + 2
+}
+            "#,
+            r#"
+struct Vec<T>;
+macro_rules! vec {
+   ($($item:expr),*) => {{
+           let mut v = Vec::new();
+           $( v.push($item); )*
+           v
+    }};
+}
+fn main() {
+  bar(vec![foo(1)])
+}
+
+fn bar(v: Vec<i32>) {}
+
+fn foo(n: i32) -> i32 {
+    n + 2
+}
+            "#,
+        )
+    }
+
+
     // Next Steps
+    // - Fix bug with nested calls
     // - Support cursor
     // - Support Ref + Mut
     // - Filter out some exprs that won't work
