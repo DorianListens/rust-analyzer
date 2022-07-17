@@ -1,13 +1,15 @@
+use std::iter;
+
 use hir::Semantics;
 use ide_db::{
     assists::{AssistId, AssistKind},
     defs::Definition,
-    search::FileReference, RootDatabase,
+    search::FileReference,
+    RootDatabase,
 };
 use syntax::{
-    algo::find_node_at_range,
     ast::{self, make, HasArgList},
-    AstNode, SyntaxKind, SyntaxNode, TextRange, SyntaxElement, NodeOrToken,
+    AstNode, SyntaxKind, SyntaxNode, TextRange,
 };
 
 use crate::{
@@ -61,10 +63,8 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 
     // - Check if we're in a function body
     let func = parent_fn(&to_extract.syntax())?;
-    let fn_def = {
-        let func = ctx.sema.to_def(&func)?;
-        Definition::Function(func)
-    };
+    let func_def = ctx.sema.to_def(&func)?;
+    let fn_def = { Definition::Function(func_def) };
     // - Can't be trait impl, but can be method
     if within_trait_impl(&func) {
         cov_mark::hit!(test_not_applicable_in_trait_impl);
@@ -112,15 +112,19 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 
             // - Find all call sites
             let usages = fn_def.usages(&ctx.sema).all();
+            let is_method_call = func_def.has_self_param(ctx.db());
 
             for (file_id, references) in usages {
                 let source_file = ctx.sema.parse(file_id);
                 edit.edit_file(file_id);
                 let call_sites: Vec<CallSite> = references
                     .iter()
-                    .filter_map(|it| find_call_site(&ctx.sema, edit, &source_file, it))
+                    .filter_map(|it| {
+                        find_call_site(&ctx.sema, edit, &source_file, it, is_method_call)
+                    })
                     .collect();
-                call_sites.into_iter().for_each(|it| it.add_arg(&to_extract));
+
+                call_sites.iter().for_each(|it| it.add_arg(edit, &to_extract));
             }
         },
     )
@@ -128,56 +132,80 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 
 fn find_call_site(
     sema: &Semantics<RootDatabase>,
-    edit: &mut AssistBuilder,
+    builder: &mut AssistBuilder,
     source_file: &syntax::SourceFile,
     usage: &FileReference,
+    is_method_call: bool,
 ) -> Option<CallSite> {
-    if let Some(macro_call) =
-        find_node_at_range::<ast::MacroCall>(source_file.syntax(), usage.range)
-    {
-        let tt = macro_call.token_tree()?;
-        let r_delimiter = NodeOrToken::Token(tt.right_delimiter_token()?);
-        let children: Vec<_> = tt.syntax()
-        .children_with_tokens()
-        .skip(1) // The l delimiter
-        .take_while(|it| *it != r_delimiter)
-        // .flat_map(SyntaxElement::into_token)
-        // .filter(|it| it.kind() == SyntaxKind::IDENT)
-        // .flat_map(|it| sema.descend_into_macros(it))
-        .collect();
-
-        dbg!(children);
-        None
-    } else if let Some(call_expr) = find_node_at_range::<ast::CallExpr>(source_file.syntax(), usage.range)
-    {
-        dbg!(&call_expr);
-        Some(CallSite::Call(edit.make_mut(call_expr)))
-    } else if let Some(method_expr) =
-        find_node_at_range::<ast::MethodCallExpr>(source_file.syntax(), usage.range)
-    {
-        Some(CallSite::MethodCall(edit.make_mut(method_expr)))
+    if is_method_call {
+        let call_expr = sema.find_node_at_offset_with_descend::<ast::MethodCallExpr>(
+            source_file.syntax(),
+            usage.range.end(),
+        )?;
+        let text_range = sema.original_range(&call_expr.syntax()).range;
+        return Some(CallSite::MethodCall(text_range, builder.make_mut(call_expr)));
     } else {
-        None
+        let call_expr = sema.find_node_at_offset_with_descend::<ast::CallExpr>(
+            source_file.syntax(),
+            usage.range.end(),
+        )?;
+        let text_range = sema.original_range(&call_expr.syntax()).range;
+        return Some(CallSite::Call(text_range, builder.make_mut(call_expr)));
     }
 }
 
 enum CallSite {
-    Call(ast::CallExpr),
-    MethodCall(ast::MethodCallExpr),
+    Call(TextRange, ast::CallExpr),
+    MethodCall(TextRange, ast::MethodCallExpr),
 }
 
 impl CallSite {
     fn arg_list(&self) -> Option<ast::ArgList> {
         match self {
-            CallSite::Call(it) => it.arg_list(),
-            CallSite::MethodCall(it) => it.arg_list(),
+            CallSite::Call(_, it) => it.arg_list(),
+            CallSite::MethodCall(_, it) => it.arg_list(),
         }
     }
 
-    fn add_arg(&self, expr: &ast::Expr) {
+    /// This currently doesn't work for nested calls,
+    /// ie: foo(foo(1))
+    /// This is because calls to builder.replace can't overlap
+    /// This problem does not occur if we use the `edit_in_place`
+    /// style of tree manipulation.
+    /// I switched to using `replace` because the ast editor
+    /// didn't work within macro calls.
+    /// no difference between `replace` and `replace_ast`.
+    /// Worth noting: this panic also hits `remove_unused_parameter`,
+    /// so atleast I'm not alone!
+    /// Filed: https://github.com/rust-lang/rust-analyzer/issues/12784
+    ///
+    /// Plan of attack:
+    /// We can solve each issue, but if they occur together, we'll need to drop the overlapping edits
+    ///
+    /// Instead of `add_arg` mutating directly, we'll need to produce
+    /// a list of edits, and then filter out the ones that would overlap (take the largest one? smallest?)
+    /// before executing them all.
+    fn add_arg(&self, builder: &mut AssistBuilder, expr: &ast::Expr) {
         // - Will we need to manually qualify names, or will that "just work"?
         // If we want this to work, we'll need a path transform.
-        self.arg_list().and_then(|it| Some(it.add_arg(expr.clone_for_update())));
+        let args = self.arg_list().map(|it| it.args()).unwrap();
+        let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
+        // self.arg_list().map(|it| it.add_arg(expr.clone_for_update()));
+        match self {
+            CallSite::Call(range, call) => {
+                let expr_call = make::expr_call(call.expr().unwrap(), new_args);
+                builder.replace(*range, expr_call.to_string());
+            }
+            CallSite::MethodCall(range, call) => {
+                let expr_call = make::expr_method_call(
+                    call.receiver().unwrap(),
+                    call.name_ref().unwrap(),
+                    new_args,
+                );
+
+                builder.replace(*range, expr_call.to_string());
+            }
+        };
     }
 }
 
@@ -505,7 +533,7 @@ macro_rules! vec {
     }};
 }
 fn main() {
-  bar(vec![foo()])
+  bar(vec![foo(), foo()])
 }
 
 fn bar(v: Vec<i32>) {}
@@ -525,7 +553,7 @@ macro_rules! vec {
     }};
 }
 fn main() {
-  bar(vec![foo(1)])
+  bar(vec![foo(1), foo(1)])
 }
 
 fn bar(v: Vec<i32>) {}
@@ -537,9 +565,142 @@ fn foo(n: i32) -> i32 {
         )
     }
 
+    #[test]
+    fn method_call_within_macro() {
+        check_assist(
+            introduce_parameter,
+            r#"
+struct Vec<T>;
+macro_rules! vec {
+   ($($item:expr),*) => {{
+           let mut v = Vec::new();
+           $( v.push($item); )*
+           v
+    }};
+}
+struct Struct;
+impl Struct {
+    fn foo(&self) -> i32 {
+        $0let n = 1;$0
+        n + 2
+    }
+}
+fn main() {
+  let strukt = Struct;
+  bar(vec![strukt.foo(), strukt.foo()])
+}
+
+fn bar(v: Vec<i32>) {}
+            "#,
+            r#"
+struct Vec<T>;
+macro_rules! vec {
+   ($($item:expr),*) => {{
+           let mut v = Vec::new();
+           $( v.push($item); )*
+           v
+    }};
+}
+struct Struct;
+impl Struct {
+    fn foo(&self, n: i32) -> i32 {
+        n + 2
+    }
+}
+fn main() {
+  let strukt = Struct;
+  bar(vec![strukt.foo(1), strukt.foo(1)])
+}
+
+fn bar(v: Vec<i32>) {}
+            "#,
+        )
+    }
+
+    #[test]
+    fn nested_method_call_within_macro() {
+        check_assist(
+            introduce_parameter,
+            r#"
+struct Vec<T>;
+macro_rules! vec {
+   ($($item:expr),*) => {{
+           let mut v = Vec::new();
+           $( v.push($item); )*
+           v
+    }};
+}
+struct Struct;
+impl Struct {
+    fn bar(v: Vec<i32>) {}
+}
+fn main() {
+  let strukt = Struct;
+  strukt.bar(vec![foo(), foo()])
+}
+
+fn foo() -> i32 {
+    $0let n = 1;$0
+    n + 2
+}
+            "#,
+            r#"
+struct Vec<T>;
+macro_rules! vec {
+   ($($item:expr),*) => {{
+           let mut v = Vec::new();
+           $( v.push($item); )*
+           v
+    }};
+}
+struct Struct;
+impl Struct {
+    fn bar(v: Vec<i32>) {}
+}
+fn main() {
+  let strukt = Struct;
+  strukt.bar(vec![foo(1), foo(1)])
+}
+
+fn foo(n: i32) -> i32 {
+    n + 2
+}
+            "#,
+        )
+    }
+
+    #[test]
+    fn double_nested_call() {
+        check_assist(
+            introduce_parameter,
+            r#"
+fn main() {
+  foo(
+    foo(1)
+  )
+}
+
+fn foo(x: i32) -> i32 {
+    $0let n = 1;$0
+    n + 2
+}
+            "#,
+            r#"
+fn main() {
+  foo(
+    foo(1, 1), 1
+  )
+}
+
+fn foo(x: i32, n: i32) -> i32 {
+    n + 2
+}
+            "#,
+        )
+    }
 
     // Next Steps
-    // - Fix bug with nested calls
+    // - Fix bug with macro calls
     // - Support cursor
     // - Support Ref + Mut
     // - Filter out some exprs that won't work
