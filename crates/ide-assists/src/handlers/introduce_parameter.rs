@@ -8,6 +8,7 @@ use ide_db::{
     RootDatabase,
 };
 use syntax::{
+    algo::find_node_at_range,
     ast::{self, make, HasArgList},
     AstNode, SyntaxKind, SyntaxNode, TextRange,
 };
@@ -124,7 +125,11 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
                     })
                     .collect();
 
-                call_sites.iter().for_each(|it| it.add_arg(edit, &to_extract));
+                let manual_edits = call_sites
+                    .into_iter()
+                    .filter_map(|call| call.add_arg_or_make_manual_edit(&to_extract))
+                    .collect();
+                process_manual_edits(manual_edits, edit, &to_extract);
             }
         },
     )
@@ -137,76 +142,94 @@ fn find_call_site(
     usage: &FileReference,
     is_method_call: bool,
 ) -> Option<CallSite> {
-    if is_method_call {
-        let call_expr = sema.find_node_at_offset_with_descend::<ast::MethodCallExpr>(
-            source_file.syntax(),
-            usage.range.end(),
-        )?;
-        let text_range = sema.original_range(&call_expr.syntax()).range;
-        return Some(CallSite::MethodCall(text_range, builder.make_mut(call_expr)));
+    if let Some(macro_call) =
+        find_node_at_range::<ast::MacroCall>(source_file.syntax(), usage.range)
+    {
+        let call = find_call(is_method_call, sema, macro_call.syntax(), usage)?;
+        let range = sema.original_range(call.syntax());
+        Some(CallSite::Macro(range.range, call))
     } else {
-        let call_expr = sema.find_node_at_offset_with_descend::<ast::CallExpr>(
-            source_file.syntax(),
-            usage.range.end(),
-        )?;
-        let text_range = sema.original_range(&call_expr.syntax()).range;
-        return Some(CallSite::Call(text_range, builder.make_mut(call_expr)));
+        let call = find_call(is_method_call, sema, source_file.syntax(), usage)?;
+        Some(CallSite::Standard(builder.make_mut(call)))
     }
+}
+
+fn find_call(
+    is_method_call: bool,
+    sema: &Semantics<RootDatabase>,
+    source_file: &SyntaxNode,
+    usage: &FileReference,
+) -> Option<ast::CallableExpr> {
+    sema.find_node_at_offset_with_descend::<ast::CallableExpr>(source_file, usage.range.end())
+
+    // if is_method_call {
+    //     let call_expr = sema.find_node_at_offset_with_descend::<ast::MethodCallExpr>(
+    //         source_file.syntax(),
+    //         usage.range.end(),
+    //     )?;
+    //     let text_range = sema.original_range(&call_expr.syntax()).range;
+    //     return Some(CallSite::MethodCall(text_range, builder.make_mut(call_expr)));
+    // } else {
+    //     let call_expr = sema.find_node_at_offset_with_descend::<ast::CallExpr>(
+    //         source_file.syntax(),
+    //         usage.range.end(),
+    //     )?;
+    //     let text_range = sema.original_range(&call_expr.syntax()).range;
+    //     return Some(CallSite::Call(text_range, builder.make_mut(call_expr)));
+    // }
 }
 
 enum CallSite {
-    Call(TextRange, ast::CallExpr),
-    MethodCall(TextRange, ast::MethodCallExpr),
+    Macro(TextRange, ast::CallableExpr),
+    Standard(ast::CallableExpr),
 }
 
 impl CallSite {
-    fn arg_list(&self) -> Option<ast::ArgList> {
+    fn add_arg_or_make_manual_edit(self, expr: &ast::Expr) -> Option<ManualEdit> {
         match self {
-            CallSite::Call(_, it) => it.arg_list(),
-            CallSite::MethodCall(_, it) => it.arg_list(),
+            CallSite::Macro(range_to_replace, call_expr) => {
+                Some(ManualEdit { range_to_replace, call_expr })
+            }
+            CallSite::Standard(call) => {
+                call.arg_list().map(|it| it.add_arg(expr.clone_for_update()));
+                None
+            }
         }
     }
+}
 
-    /// This currently doesn't work for nested calls,
-    /// ie: foo(foo(1))
-    /// This is because calls to builder.replace can't overlap
-    /// This problem does not occur if we use the `edit_in_place`
-    /// style of tree manipulation.
-    /// I switched to using `replace` because the ast editor
-    /// didn't work within macro calls.
-    /// no difference between `replace` and `replace_ast`.
-    /// Worth noting: this panic also hits `remove_unused_parameter`,
-    /// so atleast I'm not alone!
-    /// Filed: https://github.com/rust-lang/rust-analyzer/issues/12784
-    ///
-    /// Plan of attack:
-    /// We can solve each issue, but if they occur together, we'll need to drop the overlapping edits
-    ///
-    /// Instead of `add_arg` mutating directly, we'll need to produce
-    /// a list of edits, and then filter out the ones that would overlap (take the largest one? smallest?)
-    /// before executing them all.
-    fn add_arg(&self, builder: &mut AssistBuilder, expr: &ast::Expr) {
-        // - Will we need to manually qualify names, or will that "just work"?
-        // If we want this to work, we'll need a path transform.
-        let args = self.arg_list().map(|it| it.args()).unwrap();
+fn process_manual_edits(edits: Vec<ManualEdit>, builder: &mut AssistBuilder, expr: &ast::Expr) {
+    let edits: Vec<ManualEdit> = edits.into_iter().fold(vec![], |mut acc, edit| {
+        if !acc.iter().any(|it| it.range_to_replace.contains_range(edit.range_to_replace)) {
+            acc.push(edit)
+        }
+        acc
+    });
+
+    for edit in edits {
+        let args = edit.call_expr.arg_list().map(|it| it.args()).unwrap();
         let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
-        // self.arg_list().map(|it| it.add_arg(expr.clone_for_update()));
-        match self {
-            CallSite::Call(range, call) => {
+        match edit.call_expr {
+            ast::CallableExpr::Call(call) => {
                 let expr_call = make::expr_call(call.expr().unwrap(), new_args);
-                builder.replace(*range, expr_call.to_string());
+                builder.replace(edit.range_to_replace, expr_call.to_string());
             }
-            CallSite::MethodCall(range, call) => {
+            ast::CallableExpr::MethodCall(call) => {
                 let expr_call = make::expr_method_call(
                     call.receiver().unwrap(),
                     call.name_ref().unwrap(),
                     new_args,
                 );
 
-                builder.replace(*range, expr_call.to_string());
+                builder.replace(edit.range_to_replace, expr_call.to_string());
             }
         };
     }
+}
+
+struct ManualEdit {
+    call_expr: ast::CallableExpr,
+    range_to_replace: TextRange,
 }
 
 fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext) -> String {
