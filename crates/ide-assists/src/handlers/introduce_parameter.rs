@@ -198,6 +198,13 @@ impl CallSite {
     }
 }
 
+/// This can only execute a single "manual edit" for a given range,
+/// and so if we encounter more than one reference within
+/// a macro call, we'll only process one.
+///
+/// What if instead when we detected a macro call, we collected
+/// all the references within it, and then descended into the macro,
+/// find the callables,
 fn process_manual_edits(edits: Vec<ManualEdit>, builder: &mut AssistBuilder, expr: &ast::Expr) {
     let edits: Vec<ManualEdit> = edits.into_iter().fold(vec![], |mut acc, edit| {
         if !acc.iter().any(|it| it.range_to_replace.contains_range(edit.range_to_replace)) {
