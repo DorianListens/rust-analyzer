@@ -48,7 +48,6 @@ pub(crate) fn generate_enum_variant(acc: &mut Assists, ctx: &AssistContext<'_>) 
     match ctx.sema.resolve_path(&path.qualifier()?) {
         Some(hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Enum(e)))) => {
             let target = path.syntax().text_range();
-            let variant = make_variant(ctx, path, name_ref);
             let db = ctx.db();
             let InFile { file_id, value: enum_node } = e.source(db)?.original_ast_node(db)?;
 
@@ -59,6 +58,7 @@ pub(crate) fn generate_enum_variant(acc: &mut Assists, ctx: &AssistContext<'_>) 
                 |builder| {
                     builder.edit_file(file_id.original_file(db));
                     let enum_node = builder.make_mut(enum_node);
+                    let variant = make_variant(ctx, path, name_ref);
                     enum_node.variant_list().map(|it| it.add_variant(variant.clone_for_update()));
                 },
             )
