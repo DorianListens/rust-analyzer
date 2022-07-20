@@ -11,7 +11,7 @@ use crate::{
     ted::{self, Position},
     AstNode, AstToken, Direction,
     SyntaxKind::{ATTR, COMMENT, WHITESPACE},
-    SyntaxNode,
+    SyntaxNode, SyntaxToken,
 };
 
 use super::HasName;
@@ -578,7 +578,10 @@ impl ast::RecordPatFieldList {
         }
 
         let position = match self.fields().last() {
-            Some(last_field) => position_after_comma(last_field.syntax()),
+            Some(last_field) => {
+                let comma = get_or_insert_comma_after(last_field.syntax());
+                Position::after(comma)
+            }
             None => match self.l_curly_token() {
                 Some(it) => Position::after(it),
                 None => Position::last_child_of(self.syntax()),
@@ -592,8 +595,8 @@ impl ast::RecordPatFieldList {
     }
 }
 
-fn position_after_comma(last_field: &SyntaxNode) -> Position {
-    let comma = match last_field
+fn get_or_insert_comma_after(node: &SyntaxNode) -> SyntaxToken {
+    match node
         .siblings_with_tokens(Direction::Next)
         .filter_map(|it| it.into_token())
         .find(|it| it.kind() == T![,])
@@ -601,11 +604,10 @@ fn position_after_comma(last_field: &SyntaxNode) -> Position {
         Some(it) => it,
         None => {
             let comma = ast::make::token(T![,]);
-            ted::insert(Position::after(last_field), &comma);
+            ted::insert(Position::after(node), &comma);
             comma
         }
-    };
-    Position::after(comma)
+    }
 }
 impl ast::StmtList {
     pub fn push_front(&self, statement: ast::Stmt) {
@@ -618,7 +620,10 @@ impl ast::VariantList {
         let (indent, position, whitespace) = match self.variants().last() {
             Some(last_item) => (
                 IndentLevel::from_node(last_item.syntax()),
-                position_after_comma(last_item.syntax()),
+                {
+                    let comma = get_or_insert_comma_after(last_item.syntax());
+                    Position::after(comma)
+                },
                 "\n",
             ),
             None => match self.l_curly_token() {
