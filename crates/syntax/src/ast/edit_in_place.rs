@@ -578,22 +578,7 @@ impl ast::RecordPatFieldList {
         }
 
         let position = match self.fields().last() {
-            Some(last_field) => {
-                let comma = match last_field
-                    .syntax()
-                    .siblings_with_tokens(Direction::Next)
-                    .filter_map(|it| it.into_token())
-                    .find(|it| it.kind() == T![,])
-                {
-                    Some(it) => it,
-                    None => {
-                        let comma = ast::make::token(T![,]);
-                        ted::insert(Position::after(last_field.syntax()), &comma);
-                        comma
-                    }
-                };
-                Position::after(comma)
-            }
+            Some(last_field) => position_after_comma(last_field.syntax()),
             None => match self.l_curly_token() {
                 Some(it) => Position::after(it),
                 None => Position::last_child_of(self.syntax()),
@@ -606,9 +591,50 @@ impl ast::RecordPatFieldList {
         }
     }
 }
+
+fn position_after_comma(last_field: &SyntaxNode) -> Position {
+    let comma = match last_field
+        .siblings_with_tokens(Direction::Next)
+        .filter_map(|it| it.into_token())
+        .find(|it| it.kind() == T![,])
+    {
+        Some(it) => it,
+        None => {
+            let comma = ast::make::token(T![,]);
+            ted::insert(Position::after(last_field), &comma);
+            comma
+        }
+    };
+    Position::after(comma)
+}
 impl ast::StmtList {
     pub fn push_front(&self, statement: ast::Stmt) {
         ted::insert(Position::after(self.l_curly_token().unwrap()), statement.syntax());
+    }
+}
+
+impl ast::VariantList {
+    pub fn add_variant(&self, variant: ast::Variant) {
+        let (indent, position, whitespace) = match self.variants().last() {
+            Some(last_item) => (
+                IndentLevel::from_node(last_item.syntax()),
+                position_after_comma(last_item.syntax()),
+                "\n",
+            ),
+            None => match self.l_curly_token() {
+                Some(l_curly) => {
+                    normalize_ws_between_braces(self.syntax());
+                    (IndentLevel::from_token(&l_curly) + 1, Position::after(&l_curly), "\n")
+                }
+                None => (IndentLevel::single(), Position::last_child_of(self.syntax()), "\n"),
+            },
+        };
+        let elements: Vec<SyntaxElement<_>> = vec![
+            make::tokens::whitespace(&format!("{}{}", whitespace, indent)).into(),
+            variant.syntax().clone().into(),
+            ast::make::token(T![,]).into(),
+        ];
+        ted::insert_all(position, elements);
     }
 }
 

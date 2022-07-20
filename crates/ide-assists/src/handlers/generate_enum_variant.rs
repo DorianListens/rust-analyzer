@@ -1,8 +1,8 @@
-use hir::{HasSource, InFile};
+use hir::{HasSource, HirDisplay, InFile};
 use ide_db::assists::{AssistId, AssistKind};
 use syntax::{
-    ast::{self, edit::IndentLevel},
-    AstNode, TextSize,
+    ast::{self, make, HasArgList},
+    AstNode,
 };
 
 use crate::assist_context::{AssistContext, Assists};
@@ -32,8 +32,7 @@ use crate::assist_context::{AssistContext, Assists};
 // }
 // ```
 pub(crate) fn generate_enum_variant(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<()> {
-    let path_expr: ast::PathExpr = ctx.find_node_at_offset()?;
-    let path = path_expr.path()?;
+    let path: ast::Path = ctx.find_node_at_offset()?;
 
     if ctx.sema.resolve_path(&path).is_some() {
         // No need to generate anything if the path resolves
@@ -50,43 +49,80 @@ pub(crate) fn generate_enum_variant(acc: &mut Assists, ctx: &AssistContext<'_>) 
         ctx.sema.resolve_path(&path.qualifier()?)
     {
         let target = path.syntax().text_range();
-        return add_variant_to_accumulator(acc, ctx, target, e, &name_ref);
-    }
+        let variant = make_variant(ctx, path, name_ref);
+        let db = ctx.db();
+        let InFile { file_id, value: enum_node } = e.source(db)?.original_ast_node(db)?;
 
-    None
+        acc.add(
+            AssistId("generate_enum_variant", AssistKind::Generate),
+            "Generate variant",
+            target,
+            |builder| {
+                builder.edit_file(file_id.original_file(db));
+                let enum_node = builder.make_mut(enum_node);
+                enum_node.variant_list().map(|it| it.add_variant(variant.clone_for_update()));
+            },
+        )
+    } else {
+        None
+    }
 }
 
-fn add_variant_to_accumulator(
-    acc: &mut Assists,
+fn make_variant(ctx: &AssistContext<'_>, path: ast::Path, name_ref: ast::NameRef) -> ast::Variant {
+    let field_list = make_field_list(&ctx, &path);
+    make::variant(make::name(&name_ref.text()), field_list)
+}
+
+fn make_field_list(ctx: &AssistContext<'_>, path: &ast::Path) -> Option<ast::FieldList> {
+    let scope = ctx.sema.scope(&path.syntax())?;
+    if let Some(record_expr) = path.syntax().parent().and_then(ast::RecordExpr::cast) {
+        make_record_field_list(record_expr, ctx, &scope)
+    } else if let Some(call_expr) =
+        path.syntax().parent().and_then(|it| it.parent()).and_then(ast::CallExpr::cast)
+    {
+        make_tuple_field_list(call_expr, ctx, &scope)
+    } else {
+        None
+    }
+}
+
+fn make_record_field_list(
+    record: ast::RecordExpr,
     ctx: &AssistContext<'_>,
-    target: syntax::TextRange,
-    adt: hir::Enum,
-    name_ref: &ast::NameRef,
-) -> Option<()> {
-    let db = ctx.db();
-    let InFile { file_id, value: enum_node } = adt.source(db)?.original_ast_node(db)?;
-    let enum_indent = IndentLevel::from_node(&enum_node.syntax());
+    scope: &hir::SemanticsScope<'_>,
+) -> Option<ast::FieldList> {
+    let fields = record.record_expr_field_list()?.fields();
+    let record_fields = fields.map(|field| {
+        let name = field.name_ref();
+        let ty =
+            field.expr().map(|it| expr_ty(ctx, it, scope)).unwrap_or_else(make::ty_placeholder);
 
-    let variant_list = enum_node.variant_list()?;
-    let offset = variant_list.syntax().text_range().end() - TextSize::of('}');
-    let empty_enum = variant_list.variants().next().is_none();
+        let name = make::name(name.map(|it| it.ident_token()).flatten().unwrap().text());
 
-    acc.add(
-        AssistId("generate_enum_variant", AssistKind::Generate),
-        "Generate variant",
-        target,
-        |builder| {
-            builder.edit_file(file_id.original_file(db));
-            let text = format!(
-                "{maybe_newline}{indent_1}{name},\n{enum_indent}",
-                maybe_newline = if empty_enum { "\n" } else { "" },
-                indent_1 = IndentLevel(1),
-                name = name_ref,
-                enum_indent = enum_indent
-            );
-            builder.insert(offset, text)
-        },
-    )
+        make::record_field(None, name, ty)
+    });
+    Some(ast::FieldList::RecordFieldList(make::record_field_list(record_fields)))
+}
+
+fn make_tuple_field_list(
+    call_expr: ast::CallExpr,
+    ctx: &AssistContext<'_>,
+    scope: &hir::SemanticsScope<'_>,
+) -> Option<ast::FieldList> {
+    let args = call_expr.arg_list()?.args();
+    let tuple_fields = args.map(|arg| {
+        let ty = expr_ty(ctx, arg, &scope);
+        make::tuple_field(None, ty)
+    });
+    Some(ast::FieldList::TupleFieldList(make::tuple_field_list(tuple_fields)))
+}
+
+fn expr_ty(ctx: &AssistContext<'_>, arg: ast::Expr, scope: &hir::SemanticsScope<'_>) -> ast::Type {
+    let ty = ctx.sema.type_of_expr(&arg).map(|it| it.adjusted());
+    let text = ty
+        .and_then(|it| it.display_source_code(ctx.db(), scope.module().into()).ok())
+        .unwrap_or_else(|| "_".to_string());
+    make::ty(&text)
 }
 
 #[cfg(test)]
@@ -220,6 +256,48 @@ mod m {
 }
 fn main() {
     m::Foo::Baz
+}
+",
+        )
+    }
+
+    #[test]
+    fn associated_single_element_tuple() {
+        check_assist(
+            generate_enum_variant,
+            r"
+enum Foo {}
+fn main() {
+    Foo::Bar$0(true)
+}
+",
+            r"
+enum Foo {
+    Bar(bool),
+}
+fn main() {
+    Foo::Bar(true)
+}
+",
+        )
+    }
+
+    #[test]
+    fn associated_record() {
+        check_assist(
+            generate_enum_variant,
+            r"
+enum Foo {}
+fn main() {
+    Foo::$0Bar { x: true }
+}
+",
+            r"
+enum Foo {
+    Bar { x: bool },
+}
+fn main() {
+    Foo::Bar { x: true }
 }
 ",
         )
