@@ -48,7 +48,7 @@ use super::{
 //     let m = n + 2;
 // }
 // ```
-pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Option<()> {
+pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<()> {
     // Steps:
     //
     // Create
@@ -136,7 +136,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext) -> Opt
 }
 
 fn find_call_site(
-    sema: &Semantics<RootDatabase>,
+    sema: &Semantics<'_, RootDatabase>,
     builder: &mut AssistBuilder,
     source_file: &syntax::SourceFile,
     usage: &FileReference,
@@ -155,8 +155,8 @@ fn find_call_site(
 }
 
 fn find_call(
-    is_method_call: bool,
-    sema: &Semantics<RootDatabase>,
+    _is_method_call: bool,
+    sema: &Semantics<'_, RootDatabase>,
     source_file: &SyntaxNode,
     usage: &FileReference,
 ) -> Option<ast::CallableExpr> {
@@ -239,7 +239,7 @@ struct ManualEdit {
     range_to_replace: TextRange,
 }
 
-fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext) -> String {
+fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext<'_>) -> String {
     if let Some(let_stmt) = to_extract.syntax().parent().and_then(ast::LetStmt::cast) {
         return let_stmt.pat().unwrap().to_string();
     }
@@ -287,7 +287,7 @@ fn add_param_to_param_list(edit: &mut AssistBuilder, func: ast::Fn, param: ast::
 }
 
 fn make_param(
-    ctx: &AssistContext,
+    ctx: &AssistContext<'_>,
     param_name: &str,
     ty: &hir::Type,
     module: hir::Module,

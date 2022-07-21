@@ -139,7 +139,7 @@ pub(crate) fn extract_variable(acc: &mut Assists, ctx: &AssistContext<'_>) -> Op
 }
 
 pub(crate) fn expr_to_extract(
-    ctx: &AssistContext,
+    ctx: &AssistContext<'_>,
     f: impl FnMut(SyntaxNode) -> Option<ast::Expr>,
 ) -> Option<ast::Expr> {
     let node = match ctx.covering_element() {
