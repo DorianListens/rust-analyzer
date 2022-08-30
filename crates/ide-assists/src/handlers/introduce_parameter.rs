@@ -88,7 +88,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
         AssistId("introduce_parameter", AssistKind::RefactorExtract),
         "Introduce Parameter",
         target,
-        move |edit| {
+        move |builder| {
             // Execute
             // - Pick name for parameter
             let field_shorthand =
@@ -103,10 +103,10 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             };
 
             let param = make_param(ctx, &param_name, &ty, module);
-            add_param_to_param_list(edit, func, param);
+            add_param_to_param_list(builder, func, param);
 
             replace_expr_with_name_or_remove_let_stmt(
-                edit,
+                builder,
                 &field_shorthand,
                 &to_extract,
                 &param_name,
@@ -118,11 +118,11 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
 
             for (file_id, references) in usages {
                 let source_file = ctx.sema.parse(file_id);
-                edit.edit_file(file_id);
+                builder.edit_file(file_id);
                 let call_sites: Vec<CallSite> = references
                     .iter()
                     .filter_map(|it| {
-                        find_call_site(&ctx.sema, edit, &source_file, it, is_method_call)
+                        find_call_site(&ctx.sema, builder, &source_file, it, is_method_call)
                     })
                     .collect();
 
@@ -130,7 +130,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
                     .into_iter()
                     .filter_map(|call| call.add_arg_or_make_manual_edit(&to_extract))
                     .collect();
-                process_manual_edits(manual_edits, edit, &to_extract);
+                process_manual_edits(manual_edits, builder, &to_extract);
             }
         },
     )
@@ -252,23 +252,23 @@ fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext<'_>) -> St
 }
 
 fn replace_expr_with_name_or_remove_let_stmt(
-    edit: &mut SourceChangeBuilder,
+    builder: &mut SourceChangeBuilder,
     field_shorthand: &Option<ast::NameRef>,
     to_extract: &ast::Expr,
     param_name: &str,
 ) {
     if let Some(let_stmt) = to_extract.syntax().parent().and_then(ast::LetStmt::cast) {
-        remove_let_stmt(edit, let_stmt);
+        remove_let_stmt(builder, let_stmt);
     } else {
         let expr_range = match field_shorthand {
             Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
             None => to_extract.syntax().text_range(),
         };
-        edit.replace(expr_range, param_name);
+        builder.replace(expr_range, param_name);
     }
 }
 
-fn remove_let_stmt(edit: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
+fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
     let text_range = let_stmt.syntax().text_range();
     let start = let_stmt
         .let_token()
@@ -282,11 +282,11 @@ fn remove_let_stmt(edit: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
             }
         })
         .unwrap_or(text_range.start());
-    edit.delete(TextRange::new(start, text_range.end()));
+    builder.delete(TextRange::new(start, text_range.end()));
 }
 
-fn add_param_to_param_list(edit: &mut SourceChangeBuilder, func: ast::Fn, param: ast::Param) {
-    let fn_ = edit.make_mut(func);
+fn add_param_to_param_list(builder: &mut SourceChangeBuilder, func: ast::Fn, param: ast::Param) {
+    let fn_ = builder.make_mut(func);
     let param_list = fn_.get_or_create_param_list();
     param_list.add_param(param.clone_for_update());
 }
