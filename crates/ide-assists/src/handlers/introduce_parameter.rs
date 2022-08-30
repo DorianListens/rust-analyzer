@@ -5,6 +5,7 @@ use ide_db::{
     assists::{AssistId, AssistKind},
     defs::Definition,
     search::FileReference,
+    source_change::SourceChangeBuilder,
     RootDatabase,
 };
 use syntax::{
@@ -14,7 +15,7 @@ use syntax::{
 };
 
 use crate::{
-    assist_context::{AssistBuilder, AssistContext, Assists},
+    assist_context::{AssistContext, Assists},
     utils::suggest_name,
 };
 
@@ -137,7 +138,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
 
 fn find_call_site(
     sema: &Semantics<'_, RootDatabase>,
-    builder: &mut AssistBuilder,
+    builder: &mut SourceChangeBuilder,
     source_file: &syntax::SourceFile,
     usage: &FileReference,
     is_method_call: bool,
@@ -205,7 +206,11 @@ impl CallSite {
 /// What if instead when we detected a macro call, we collected
 /// all the references within it, and then descended into the macro,
 /// find the callables,
-fn process_manual_edits(edits: Vec<ManualEdit>, builder: &mut AssistBuilder, expr: &ast::Expr) {
+fn process_manual_edits(
+    edits: Vec<ManualEdit>,
+    builder: &mut SourceChangeBuilder,
+    expr: &ast::Expr,
+) {
     let edits: Vec<ManualEdit> = edits.into_iter().fold(vec![], |mut acc, edit| {
         if !acc.iter().any(|it| it.range_to_replace.contains_range(edit.range_to_replace)) {
             acc.push(edit)
@@ -247,7 +252,7 @@ fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext<'_>) -> St
 }
 
 fn replace_expr_with_name_or_remove_let_stmt(
-    edit: &mut AssistBuilder,
+    edit: &mut SourceChangeBuilder,
     field_shorthand: &Option<ast::NameRef>,
     to_extract: &ast::Expr,
     param_name: &str,
@@ -263,7 +268,7 @@ fn replace_expr_with_name_or_remove_let_stmt(
     }
 }
 
-fn remove_let_stmt(edit: &mut AssistBuilder, let_stmt: ast::LetStmt) {
+fn remove_let_stmt(edit: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
     let text_range = let_stmt.syntax().text_range();
     let start = let_stmt
         .let_token()
@@ -280,7 +285,7 @@ fn remove_let_stmt(edit: &mut AssistBuilder, let_stmt: ast::LetStmt) {
     edit.delete(TextRange::new(start, text_range.end()));
 }
 
-fn add_param_to_param_list(edit: &mut AssistBuilder, func: ast::Fn, param: ast::Param) {
+fn add_param_to_param_list(edit: &mut SourceChangeBuilder, func: ast::Fn, param: ast::Param) {
     let fn_ = edit.make_mut(func);
     let param_list = fn_.get_or_create_param_list();
     param_list.add_param(param.clone_for_update());
