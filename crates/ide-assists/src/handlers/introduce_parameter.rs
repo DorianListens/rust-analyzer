@@ -54,10 +54,10 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     //   - Can't reference any locals not in param list
     //   - How strict should we be about visibility?
     //     - Is it better to generate easily fixable broken code, or refuse?
-    let to_extract = expr_to_extract(ctx, valid_target)?;
+    let original_expr = expr_to_extract(ctx, valid_target)?;
 
     // - Check if we're in a function body
-    let func = parent_fn(&to_extract.syntax())?;
+    let func = parent_fn(&original_expr.syntax())?;
     let fn_def = Definition::Function(ctx.sema.to_def(&func)?);
     // - Can't be trait impl, but can be method
     if within_trait_impl(&func) {
@@ -66,14 +66,14 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     }
 
     // - Find Type of expression
-    let ty = ctx.sema.type_of_expr(&to_extract)?.adjusted();
+    let ty = ctx.sema.type_of_expr(&original_expr)?.adjusted();
 
     if ty.is_unit() {
         cov_mark::hit!(test_not_applicable_for_unit);
         return None;
     }
 
-    let module = ctx.sema.scope(&to_extract.syntax())?.module();
+    let module = ctx.sema.scope(&original_expr.syntax())?.module();
 
     let target = ctx.covering_element().text_range();
     acc.add(
@@ -84,14 +84,14 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             // Execute
             // - Pick name for parameter
             let field_shorthand =
-                match to_extract.syntax().parent().and_then(ast::RecordExprField::cast) {
+                match original_expr.syntax().parent().and_then(ast::RecordExprField::cast) {
                     Some(field) => field.name_ref(),
                     None => None,
                 };
 
             let param_name = match &field_shorthand {
                 Some(it) => it.to_string(),
-                None => suggest_name_for_param(ctx, &to_extract),
+                None => suggest_name_for_param(ctx, &original_expr),
             };
 
             let param = make_param(ctx, &param_name, &ty, module);
@@ -100,7 +100,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             replace_expr_with_name_or_remove_let_stmt(
                 builder,
                 &field_shorthand,
-                &to_extract,
+                &original_expr,
                 &param_name,
             );
 
@@ -112,14 +112,14 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
                 builder.edit_file(file_id);
                 let call_sites: Vec<CallSite> = references
                     .iter()
-                    .filter_map(|it| find_call_site(&ctx.sema, builder, &source_file, it))
+                    .filter_map(|usage| find_call_site(&ctx.sema, builder, &source_file, usage))
                     .collect();
 
                 let manual_edits = call_sites
                     .into_iter()
-                    .filter_map(|call| call.add_arg_or_make_manual_edit(&to_extract))
+                    .filter_map(|call| call.add_arg_or_make_manual_edit(&original_expr))
                     .collect();
-                process_manual_edits(manual_edits, builder, &to_extract);
+                process_manual_edits(manual_edits, builder, &original_expr);
             }
         },
     )
@@ -225,25 +225,25 @@ impl ManualEdit {
     }
 }
 
-fn suggest_name_for_param(ctx: &AssistContext<'_>, to_extract: &ast::Expr) -> String {
-    if let Some(let_stmt) = to_extract.syntax().parent().and_then(ast::LetStmt::cast) {
+fn suggest_name_for_param(ctx: &AssistContext<'_>, expr: &ast::Expr) -> String {
+    if let Some(let_stmt) = expr.syntax().parent().and_then(ast::LetStmt::cast) {
         return let_stmt.pat().unwrap().to_string();
     }
-    suggest_name::for_variable(to_extract, &ctx.sema)
+    suggest_name::for_variable(expr, &ctx.sema)
 }
 
 fn replace_expr_with_name_or_remove_let_stmt(
     builder: &mut SourceChangeBuilder,
     field_shorthand: &Option<ast::NameRef>,
-    to_extract: &ast::Expr,
+    original_expr: &ast::Expr,
     param_name: &str,
 ) {
-    if let Some(let_stmt) = to_extract.syntax().parent().and_then(ast::LetStmt::cast) {
+    if let Some(let_stmt) = original_expr.syntax().parent().and_then(ast::LetStmt::cast) {
         remove_let_stmt(builder, let_stmt);
     } else {
         let expr_range = match field_shorthand {
-            Some(it) => it.syntax().text_range().cover(to_extract.syntax().text_range()),
-            None => to_extract.syntax().text_range(),
+            Some(it) => it.syntax().text_range().cover(original_expr.syntax().text_range()),
+            None => original_expr.syntax().text_range(),
         };
         builder.replace(expr_range, param_name);
     }
