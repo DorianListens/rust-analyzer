@@ -19,10 +19,7 @@ use crate::{
     utils::suggest_name,
 };
 
-use super::{
-    extract_function::make_ty,
-    extract_variable::{expr_to_extract, valid_target_expr},
-};
+use super::{extract_function::make_ty, extract_variable::expr_to_extract};
 
 // Assist: introduce_parameter
 //
@@ -61,7 +58,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     //   - Can't reference any locals not in param list
     //   - How strict should we be about visibility?
     //     - Is it better to generate easily fixable broken code, or refuse?
-    let to_extract = expr_to_extract(ctx, valid_target_expr)?;
+    let to_extract = expr_to_extract(ctx, valid_target)?;
 
     // - Check if we're in a function body
     let func = parent_fn(&to_extract.syntax())?;
@@ -134,6 +131,14 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             }
         },
     )
+}
+
+fn valid_target(node: SyntaxNode) -> Option<ast::Expr> {
+    match node.kind() {
+        SyntaxKind::LITERAL => ast::Literal::cast(node).map(|e| e.into()),
+        SyntaxKind::TUPLE_EXPR => ast::TupleExpr::cast(node).map(|e| e.into()),
+        _ => None,
+    }
 }
 
 fn find_call_site(
