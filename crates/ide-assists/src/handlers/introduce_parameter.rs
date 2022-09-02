@@ -204,9 +204,9 @@ struct ManualEdit {
 }
 
 impl ManualEdit {
-    fn process(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
+    fn process(self, new_arg: &ast::Expr, builder: &mut SourceChangeBuilder) {
         let args = self.call_expr.arg_list().map(|it| it.args()).unwrap();
-        let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
+        let new_args = make::arg_list(args.chain(iter::once(new_arg.clone())));
         match self.call_expr {
             ast::CallableExpr::Call(call) => {
                 let expr_call = make::expr_call(call.expr().unwrap(), new_args);
