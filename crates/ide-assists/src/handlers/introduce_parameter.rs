@@ -47,10 +47,6 @@ use super::{extract_function::make_ty, extract_variable::expr_to_extract};
 // }
 // ```
 pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<()> {
-    // Steps:
-    //
-    // Create
-
     // - Find Expression to Extract
     //   - This is the same as extract_variable for now
     //   - Can filter list more later to exclude things that will definitely not compile
@@ -207,10 +203,6 @@ impl CallSite {
 /// This can only execute a single "manual edit" for a given range,
 /// and so if we encounter more than one reference within
 /// a macro call, we'll only process one.
-///
-/// What if instead when we detected a macro call, we collected
-/// all the references within it, and then descended into the macro,
-/// find the callables,
 fn process_manual_edits(
     edits: Vec<ManualEdit>,
     builder: &mut SourceChangeBuilder,
@@ -740,7 +732,6 @@ fn foo(x: i32, n: i32) -> i32 {
     }
 
     // Next Steps
-    // - Fix bug with macro calls
     // - Support cursor
     // - Support Ref + Mut
     // - Filter out some exprs that won't work
