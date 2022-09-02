@@ -194,33 +194,35 @@ fn process_manual_edits(
     });
 
     for edit in edits {
-        process_edit(edit, expr, builder);
+        edit.process_edit(expr, builder);
     }
-}
-
-fn process_edit(edit: ManualEdit, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
-    let args = edit.call_expr.arg_list().map(|it| it.args()).unwrap();
-    let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
-    match edit.call_expr {
-        ast::CallableExpr::Call(call) => {
-            let expr_call = make::expr_call(call.expr().unwrap(), new_args);
-            builder.replace(edit.range_to_replace, expr_call.to_string());
-        }
-        ast::CallableExpr::MethodCall(call) => {
-            let expr_call = make::expr_method_call(
-                call.receiver().unwrap(),
-                call.name_ref().unwrap(),
-                new_args,
-            );
-
-            builder.replace(edit.range_to_replace, expr_call.to_string());
-        }
-    };
 }
 
 struct ManualEdit {
     call_expr: ast::CallableExpr,
     range_to_replace: TextRange,
+}
+
+impl ManualEdit {
+    fn process_edit(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
+        let args = self.call_expr.arg_list().map(|it| it.args()).unwrap();
+        let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
+        match self.call_expr {
+            ast::CallableExpr::Call(call) => {
+                let expr_call = make::expr_call(call.expr().unwrap(), new_args);
+                builder.replace(self.range_to_replace, expr_call.to_string());
+            }
+            ast::CallableExpr::MethodCall(call) => {
+                let expr_call = make::expr_method_call(
+                    call.receiver().unwrap(),
+                    call.name_ref().unwrap(),
+                    new_args,
+                );
+
+                builder.replace(self.range_to_replace, expr_call.to_string());
+            }
+        };
+    }
 }
 
 fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext<'_>) -> String {
