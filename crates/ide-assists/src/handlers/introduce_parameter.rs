@@ -1,6 +1,6 @@
 use std::iter;
 
-use hir::Semantics;
+use hir::{HirDisplay, Semantics};
 use ide_db::{
     assists::{AssistId, AssistKind},
     defs::Definition,
@@ -19,7 +19,7 @@ use crate::{
     utils::suggest_name,
 };
 
-use super::{extract_function::make_ty, extract_variable::expr_to_extract};
+use super::extract_variable::expr_to_extract;
 
 // Assist: introduce_parameter
 //
@@ -280,7 +280,10 @@ fn make_param(
 ) -> ast::Param {
     let name = make::name(&param_name);
     let pat = make::ext::simple_ident_pat(name);
-    let ty = make_ty(ty, ctx, module);
+    let ty = ty
+        .display_source_code(ctx.db(), module.into())
+        .map(|it| make::ty(&it))
+        .unwrap_or_else(|_| make::ty_placeholder());
 
     make::param(pat.into(), ty)
 }
