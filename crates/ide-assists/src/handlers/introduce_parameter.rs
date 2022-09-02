@@ -57,10 +57,10 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     let original_expr = expr_to_extract(ctx, valid_target)?;
 
     // - Check if we're in a function body
-    let func = parent_fn(&original_expr.syntax())?;
-    let fn_def = Definition::Function(ctx.sema.to_def(&func)?);
+    let fn_ = parent_fn(&original_expr.syntax())?;
+    let fn_def = Definition::Function(ctx.sema.to_def(&fn_)?);
     // - Can't be trait impl, but can be method
-    if within_trait_impl(&func) {
+    if within_trait_impl(&fn_) {
         cov_mark::hit!(test_not_applicable_in_trait_impl);
         return None;
     }
@@ -95,7 +95,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             };
 
             let param = make_param(ctx, &param_name, &ty, module);
-            add_param_to_param_list(builder, func, param);
+            add_param_to_param_list(builder, fn_, param);
 
             replace_expr_with_name_or_remove_let_stmt(
                 builder,
@@ -266,8 +266,8 @@ fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
     builder.delete(TextRange::new(start, text_range.end()));
 }
 
-fn add_param_to_param_list(builder: &mut SourceChangeBuilder, func: ast::Fn, param: ast::Param) {
-    let fn_ = builder.make_mut(func);
+fn add_param_to_param_list(builder: &mut SourceChangeBuilder, fn_: ast::Fn, param: ast::Param) {
+    let fn_ = builder.make_mut(fn_);
     let param_list = fn_.get_or_create_param_list();
     param_list.add_param(param.clone_for_update());
 }
@@ -288,8 +288,8 @@ fn make_param(
     make::param(pat.into(), ty)
 }
 
-fn within_trait_impl(func: &ast::Fn) -> bool {
-    func.syntax()
+fn within_trait_impl(fn_: &ast::Fn) -> bool {
+    fn_.syntax()
         .parent() // AssocItemList
         .and_then(|x| x.parent())
         .and_then(ast::Impl::cast)
