@@ -194,7 +194,7 @@ fn process_manual_edits(
     });
 
     for edit in edits {
-        edit.process_edit(expr, builder);
+        edit.process(expr, builder);
     }
 }
 
@@ -204,7 +204,7 @@ struct ManualEdit {
 }
 
 impl ManualEdit {
-    fn process_edit(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
+    fn process(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
         let args = self.call_expr.arg_list().map(|it| it.args()).unwrap();
         let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
         match self.call_expr {
