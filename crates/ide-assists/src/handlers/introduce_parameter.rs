@@ -91,7 +91,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
 
             let param_name = match &field_shorthand {
                 Some(it) => it.to_string(),
-                None => suggest_name_for_param(&to_extract, ctx),
+                None => suggest_name_for_param(ctx, &to_extract),
             };
 
             let param = make_param(ctx, &param_name, &ty, module);
@@ -225,7 +225,7 @@ impl ManualEdit {
     }
 }
 
-fn suggest_name_for_param(to_extract: &ast::Expr, ctx: &AssistContext<'_>) -> String {
+fn suggest_name_for_param(ctx: &AssistContext<'_>, to_extract: &ast::Expr) -> String {
     if let Some(let_stmt) = to_extract.syntax().parent().and_then(ast::LetStmt::cast) {
         return let_stmt.pat().unwrap().to_string();
     }
