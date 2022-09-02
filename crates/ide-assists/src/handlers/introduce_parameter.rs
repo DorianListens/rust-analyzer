@@ -58,8 +58,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
 
     // - Check if we're in a function body
     let func = parent_fn(&to_extract.syntax())?;
-    let func_def = ctx.sema.to_def(&func)?;
-    let fn_def = { Definition::Function(func_def) };
+    let fn_def = Definition::Function(ctx.sema.to_def(&func)?);
     // - Can't be trait impl, but can be method
     if within_trait_impl(&func) {
         cov_mark::hit!(test_not_applicable_in_trait_impl);
@@ -107,16 +106,13 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
 
             // - Find all call sites
             let usages = fn_def.usages(&ctx.sema).all();
-            let is_method_call = func_def.has_self_param(ctx.db());
 
             for (file_id, references) in usages {
                 let source_file = ctx.sema.parse(file_id);
                 builder.edit_file(file_id);
                 let call_sites: Vec<CallSite> = references
                     .iter()
-                    .filter_map(|it| {
-                        find_call_site(&ctx.sema, builder, &source_file, it, is_method_call)
-                    })
+                    .filter_map(|it| find_call_site(&ctx.sema, builder, &source_file, it))
                     .collect();
 
                 let manual_edits = call_sites
@@ -142,43 +138,25 @@ fn find_call_site(
     builder: &mut SourceChangeBuilder,
     source_file: &syntax::SourceFile,
     usage: &FileReference,
-    is_method_call: bool,
 ) -> Option<CallSite> {
     if let Some(macro_call) =
         find_node_at_range::<ast::MacroCall>(source_file.syntax(), usage.range)
     {
-        let call = find_call(is_method_call, sema, macro_call.syntax(), usage)?;
+        let call = find_call(sema, macro_call.syntax(), usage)?;
         let range = sema.original_range(call.syntax());
         Some(CallSite::Macro(range.range, call))
     } else {
-        let call = find_call(is_method_call, sema, source_file.syntax(), usage)?;
+        let call = find_call(sema, source_file.syntax(), usage)?;
         Some(CallSite::Standard(builder.make_mut(call)))
     }
 }
 
 fn find_call(
-    _is_method_call: bool,
     sema: &Semantics<'_, RootDatabase>,
     source_file: &SyntaxNode,
     usage: &FileReference,
 ) -> Option<ast::CallableExpr> {
     sema.find_node_at_offset_with_descend::<ast::CallableExpr>(source_file, usage.range.end())
-
-    // if is_method_call {
-    //     let call_expr = sema.find_node_at_offset_with_descend::<ast::MethodCallExpr>(
-    //         source_file.syntax(),
-    //         usage.range.end(),
-    //     )?;
-    //     let text_range = sema.original_range(&call_expr.syntax()).range;
-    //     return Some(CallSite::MethodCall(text_range, builder.make_mut(call_expr)));
-    // } else {
-    //     let call_expr = sema.find_node_at_offset_with_descend::<ast::CallExpr>(
-    //         source_file.syntax(),
-    //         usage.range.end(),
-    //     )?;
-    //     let text_range = sema.original_range(&call_expr.syntax()).range;
-    //     return Some(CallSite::Call(text_range, builder.make_mut(call_expr)));
-    // }
 }
 
 enum CallSite {
