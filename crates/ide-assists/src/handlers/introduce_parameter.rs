@@ -207,21 +207,13 @@ impl ManualEdit {
     fn process(self, new_arg: &ast::Expr, builder: &mut SourceChangeBuilder) {
         let args = self.call_expr.arg_list().map(|it| it.args()).unwrap();
         let new_args = make::arg_list(args.chain(iter::once(new_arg.clone())));
-        match self.call_expr {
-            ast::CallableExpr::Call(call) => {
-                let expr_call = make::expr_call(call.expr().unwrap(), new_args);
-                builder.replace(self.range_to_replace, expr_call.to_string());
-            }
+        let replacement = match self.call_expr {
+            ast::CallableExpr::Call(call) => make::expr_call(call.expr().unwrap(), new_args),
             ast::CallableExpr::MethodCall(call) => {
-                let expr_call = make::expr_method_call(
-                    call.receiver().unwrap(),
-                    call.name_ref().unwrap(),
-                    new_args,
-                );
-
-                builder.replace(self.range_to_replace, expr_call.to_string());
+                make::expr_method_call(call.receiver().unwrap(), call.name_ref().unwrap(), new_args)
             }
         };
+        builder.replace(self.range_to_replace, replacement.to_string());
     }
 }
 
