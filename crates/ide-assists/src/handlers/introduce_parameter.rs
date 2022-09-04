@@ -54,7 +54,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     //   - Can't reference any locals not in param list
     //   - How strict should we be about visibility?
     //     - Is it better to generate easily fixable broken code, or refuse?
-    let original_expr = expr_to_extract(ctx, valid_target)?;
+    let (original_expr, ty, module) = new_parameter(ctx)?;
 
     // - Check if we're in a function body
     let fn_ = parent_fn(&original_expr.syntax())?;
@@ -64,16 +64,6 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
         cov_mark::hit!(test_not_applicable_in_trait_impl);
         return None;
     }
-
-    // - Find Type of expression
-    let ty = ctx.sema.type_of_expr(&original_expr)?.adjusted();
-
-    if ty.is_unit() {
-        cov_mark::hit!(test_not_applicable_for_unit);
-        return None;
-    }
-
-    let module = ctx.sema.scope(&original_expr.syntax())?.module();
 
     let target = ctx.covering_element().text_range();
     acc.add(
@@ -123,6 +113,19 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             }
         },
     )
+}
+
+type NewParameter = (ast::Expr, hir::Type, hir::Module);
+
+fn new_parameter(ctx: &AssistContext) -> Option<NewParameter> {
+    let original_expr = expr_to_extract(ctx, valid_target)?;
+    let ty = ctx.sema.type_of_expr(&original_expr)?.adjusted();
+    if ty.is_unit() {
+        cov_mark::hit!(test_not_applicable_for_unit);
+        return None;
+    }
+    let module = ctx.sema.scope(&original_expr.syntax())?.module();
+    Some((original_expr, ty, module))
 }
 
 fn valid_target(node: SyntaxNode) -> Option<ast::Expr> {
