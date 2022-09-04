@@ -117,11 +117,7 @@ impl NewParameter {
     }
 
     fn parent_fn(&self) -> Option<ast::Fn> {
-        let fn_ = {
-            let node: &SyntaxNode = &self.original_expr.syntax();
-            node.ancestors().find_map(ast::Fn::cast)
-        }?;
-        Some(fn_)
+        self.original_expr.syntax().ancestors().find_map(ast::Fn::cast)
     }
 
     fn name_and_ast(&self, ctx: &AssistContext<'_>) -> (String, ast::Param) {
