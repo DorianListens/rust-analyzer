@@ -127,11 +127,10 @@ impl NewParameter {
     }
 
     fn original_range(&self) -> TextRange {
-        let expr_range = match self.field_shorthand() {
+        match self.field_shorthand() {
             Some(it) => it.syntax().text_range().cover(self.original_expr.syntax().text_range()),
             None => self.original_expr.syntax().text_range(),
-        };
-        expr_range
+        }
     }
 }
 
