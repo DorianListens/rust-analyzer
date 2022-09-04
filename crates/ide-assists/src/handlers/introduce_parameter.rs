@@ -71,17 +71,13 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
         "Introduce Parameter",
         target,
         move |builder| {
-            // Execute
-            // - Pick name for parameter
             let (param_name, param) = new_param.name_and_ast(ctx);
+
             builder.make_mut(fn_).add_param(param.clone_for_update());
 
             replace_expr_with_name_or_remove_let_stmt(builder, &new_param, &param_name);
 
-            // - Find all call sites
-            let usages = fn_def.usages(&ctx.sema).all();
-
-            for (file_id, references) in usages {
+            for (file_id, references) in fn_def.usages(&ctx.sema).all() {
                 let source_file = ctx.sema.parse(file_id);
                 builder.edit_file(file_id);
                 let call_sites: Vec<CallSite> = references
