@@ -161,21 +161,19 @@ fn find_call_site(
     if let Some(macro_call) =
         find_node_at_range::<ast::MacroCall>(source_file.syntax(), usage.range)
     {
-        let call = find_call(sema, macro_call.syntax(), usage)?;
+        let call = sema.find_node_at_offset_with_descend::<ast::CallableExpr>(
+            macro_call.syntax(),
+            usage.range.end(),
+        )?;
         let range = sema.original_range(call.syntax());
         Some(CallSite::Macro(range.range, call))
     } else {
-        let call = find_call(sema, source_file.syntax(), usage)?;
+        let call = sema.find_node_at_offset_with_descend::<ast::CallableExpr>(
+            source_file.syntax(),
+            usage.range.end(),
+        )?;
         Some(CallSite::Standard(builder.make_mut(call)))
     }
-}
-
-fn find_call(
-    sema: &Semantics<'_, RootDatabase>,
-    source_file: &SyntaxNode,
-    usage: &FileReference,
-) -> Option<ast::CallableExpr> {
-    sema.find_node_at_offset_with_descend::<ast::CallableExpr>(source_file, usage.range.end())
 }
 
 enum CallSite {
@@ -205,16 +203,21 @@ fn process_manual_edits(
     builder: &mut SourceChangeBuilder,
     expr: &ast::Expr,
 ) {
-    let edits: Vec<ManualEdit> = edits.into_iter().fold(vec![], |mut acc, edit| {
-        if !acc.iter().any(|it| it.range_to_replace.contains_range(edit.range_to_replace)) {
-            acc.push(edit)
-        }
-        acc
-    });
+    let edits = non_overlapping_edits(edits);
 
     for edit in edits {
         edit.process(expr, builder);
     }
+}
+
+/// r-a panics if edits overlap
+fn non_overlapping_edits(edits: Vec<ManualEdit>) -> Vec<ManualEdit> {
+    edits.into_iter().fold(vec![], |mut acc, edit| {
+        if !acc.iter().any(|it| it.range_to_replace.contains_range(edit.range_to_replace)) {
+            acc.push(edit)
+        }
+        acc
+    })
 }
 
 struct ManualEdit {
