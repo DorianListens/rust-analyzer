@@ -253,12 +253,17 @@ fn replace_expr_with_name_or_remove_let_stmt(
     if let Some(let_stmt) = original_expr.syntax().parent().and_then(ast::LetStmt::cast) {
         remove_let_stmt(builder, let_stmt);
     } else {
-        let expr_range = match field_shorthand {
-            Some(it) => it.syntax().text_range().cover(original_expr.syntax().text_range()),
-            None => original_expr.syntax().text_range(),
-        };
+        let expr_range = original_range(field_shorthand, original_expr);
         builder.replace(expr_range, param_name);
     }
+}
+
+fn original_range(field_shorthand: &Option<ast::NameRef>, original_expr: &ast::Expr) -> TextRange {
+    let expr_range = match field_shorthand {
+        Some(it) => it.syntax().text_range().cover(original_expr.syntax().text_range()),
+        None => original_expr.syntax().text_range(),
+    };
+    expr_range
 }
 
 fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
