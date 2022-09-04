@@ -95,7 +95,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             };
 
             let param = make_param(ctx, &param_name, &ty, module);
-            add_param_to_param_list(builder, fn_, param);
+            builder.make_mut(fn_).add_param(param.clone_for_update());
 
             replace_expr_with_name_or_remove_let_stmt(
                 builder,
@@ -256,12 +256,6 @@ fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
         })
         .unwrap_or(text_range.start());
     builder.delete(TextRange::new(start, text_range.end()));
-}
-
-fn add_param_to_param_list(builder: &mut SourceChangeBuilder, fn_: ast::Fn, param: ast::Param) {
-    let fn_ = builder.make_mut(fn_);
-    let param_list = fn_.get_or_create_param_list();
-    param_list.add_param(param.clone_for_update());
 }
 
 fn make_param(

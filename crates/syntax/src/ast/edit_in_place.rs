@@ -451,6 +451,10 @@ impl ast::Fn {
             param_list
         })
     }
+
+    pub fn add_param(&self, param: ast::Param) {
+        self.get_or_create_param_list().add_param(param)
+    }
 }
 
 impl ast::ParamList {
