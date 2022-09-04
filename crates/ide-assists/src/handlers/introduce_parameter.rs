@@ -54,10 +54,10 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     //   - Can't reference any locals not in param list
     //   - How strict should we be about visibility?
     //     - Is it better to generate easily fixable broken code, or refuse?
-    let NewParameter { original_expr, ty, module } = new_parameter(ctx)?;
+    let new_param = new_parameter(ctx)?;
 
     // - Check if we're in a function body
-    let fn_ = parent_fn(&original_expr.syntax())?;
+    let fn_ = parent_fn(&new_param.original_expr.syntax())?;
     let fn_def = Definition::Function(ctx.sema.to_def(&fn_)?);
     // - Can't be trait impl, but can be method
     if within_trait_impl(&fn_) {
@@ -73,20 +73,20 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
         move |builder| {
             // Execute
             // - Pick name for parameter
-            let field_shorthand = field_shorthand(&original_expr);
+            let field_shorthand = field_shorthand(&new_param.original_expr);
 
             let param_name = match &field_shorthand {
                 Some(it) => it.to_string(),
-                None => suggest_name_for_param(ctx, &original_expr),
+                None => suggest_name_for_param(ctx, &new_param.original_expr),
             };
 
-            let param = make_param(ctx, &param_name, &ty, module);
+            let param = make_param(ctx, &param_name, &new_param.ty, new_param.module);
             builder.make_mut(fn_).add_param(param.clone_for_update());
 
             replace_expr_with_name_or_remove_let_stmt(
                 builder,
                 &field_shorthand,
-                &original_expr,
+                &new_param.original_expr,
                 &param_name,
             );
 
@@ -103,9 +103,9 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
 
                 let manual_edits = call_sites
                     .into_iter()
-                    .filter_map(|call| call.add_arg_or_make_manual_edit(&original_expr))
+                    .filter_map(|call| call.add_arg_or_make_manual_edit(&new_param.original_expr))
                     .collect();
-                process_manual_edits(manual_edits, builder, &original_expr);
+                process_manual_edits(manual_edits, builder, &new_param.original_expr);
             }
         },
     )
