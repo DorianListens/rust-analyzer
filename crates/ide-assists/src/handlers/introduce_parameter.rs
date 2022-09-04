@@ -66,7 +66,6 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             let (param_name, param) = new_param.name_and_ast(ctx);
 
             builder.make_mut(fn_).add_param(param.clone_for_update());
-
             update_original_declaration(builder, &new_param, &param_name);
 
             for (file_id, references) in fn_def.usages(&ctx.sema).all() {
@@ -81,7 +80,10 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
                     .into_iter()
                     .filter_map(|call| call.add_arg_or_make_manual_edit(&new_param.original_expr))
                     .collect();
-                process_manual_edits(manual_edits, builder, &new_param.original_expr);
+
+                for edit in non_overlapping_edits(manual_edits) {
+                    edit.process(&new_param.original_expr, builder);
+                }
             }
         },
     )
@@ -192,21 +194,6 @@ impl CallSite {
                 None
             }
         }
-    }
-}
-
-/// This can only execute a single "manual edit" for a given range,
-/// and so if we encounter more than one reference within
-/// a macro call, we'll only process one.
-fn process_manual_edits(
-    edits: Vec<ManualEdit>,
-    builder: &mut SourceChangeBuilder,
-    expr: &ast::Expr,
-) {
-    let edits = non_overlapping_edits(edits);
-
-    for edit in edits {
-        edit.process(expr, builder);
     }
 }
 
