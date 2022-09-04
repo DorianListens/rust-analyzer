@@ -73,17 +73,10 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
         move |builder| {
             // Execute
             // - Pick name for parameter
-            let field_shorthand = new_param.field_shorthand();
-
             let (param_name, param) = new_param.name_and_ast(ctx);
             builder.make_mut(fn_).add_param(param.clone_for_update());
 
-            replace_expr_with_name_or_remove_let_stmt(
-                builder,
-                &field_shorthand,
-                &new_param.original_expr,
-                &param_name,
-            );
+            replace_expr_with_name_or_remove_let_stmt(builder, &new_param, &param_name);
 
             // - Find all call sites
             let usages = fn_def.usages(&ctx.sema).all();
@@ -131,6 +124,14 @@ impl NewParameter {
         };
         let param = make_param(ctx, &param_name, &self.ty, self.module);
         (param_name, param)
+    }
+
+    fn original_range(&self) -> TextRange {
+        let expr_range = match self.field_shorthand() {
+            Some(it) => it.syntax().text_range().cover(self.original_expr.syntax().text_range()),
+            None => self.original_expr.syntax().text_range(),
+        };
+        expr_range
     }
 }
 
@@ -246,24 +247,15 @@ fn suggest_name_for_param(ctx: &AssistContext<'_>, expr: &ast::Expr) -> String {
 
 fn replace_expr_with_name_or_remove_let_stmt(
     builder: &mut SourceChangeBuilder,
-    field_shorthand: &Option<ast::NameRef>,
-    original_expr: &ast::Expr,
+    new_param: &NewParameter,
     param_name: &str,
 ) {
-    if let Some(let_stmt) = original_expr.syntax().parent().and_then(ast::LetStmt::cast) {
+    if let Some(let_stmt) = new_param.original_expr.syntax().parent().and_then(ast::LetStmt::cast) {
         remove_let_stmt(builder, let_stmt);
     } else {
-        let expr_range = original_range(field_shorthand, original_expr);
+        let expr_range = new_param.original_range();
         builder.replace(expr_range, param_name);
     }
-}
-
-fn original_range(field_shorthand: &Option<ast::NameRef>, original_expr: &ast::Expr) -> TextRange {
-    let expr_range = match field_shorthand {
-        Some(it) => it.syntax().text_range().cover(original_expr.syntax().text_range()),
-        None => original_expr.syntax().text_range(),
-    };
-    expr_range
 }
 
 fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
