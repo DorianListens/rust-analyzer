@@ -73,7 +73,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
         move |builder| {
             // Execute
             // - Pick name for parameter
-            let field_shorthand = field_shorthand(&new_param.original_expr);
+            let field_shorthand = new_param.field_shorthand();
 
             let param_name = match &field_shorthand {
                 Some(it) => it.to_string(),
@@ -111,13 +111,6 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     )
 }
 
-fn field_shorthand(original_expr: &ast::Expr) -> Option<ast::NameRef> {
-    match original_expr.syntax().parent().and_then(ast::RecordExprField::cast) {
-        Some(field) => field.name_ref(),
-        None => None,
-    }
-}
-
 struct NewParameter {
     original_expr: ast::Expr,
     ty: hir::Type,
@@ -127,6 +120,12 @@ struct NewParameter {
 impl NewParameter {
     fn new(original_expr: ast::Expr, ty: hir::Type, module: hir::Module) -> Self {
         Self { original_expr, ty, module }
+    }
+    fn field_shorthand(&self) -> Option<ast::NameRef> {
+        match self.original_expr.syntax().parent().and_then(ast::RecordExprField::cast) {
+            Some(field) => field.name_ref(),
+            None => None,
+        }
     }
 }
 
