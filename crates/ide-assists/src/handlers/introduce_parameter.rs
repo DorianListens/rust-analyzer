@@ -49,7 +49,7 @@ use super::extract_variable::expr_to_extract;
 pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<()> {
     let new_param = new_parameter(ctx)?;
 
-    let fn_ = parent_fn(&new_param.original_expr.syntax())?;
+    let fn_ = new_param.parent_fn()?;
     let fn_def = Definition::Function(ctx.sema.to_def(&fn_)?);
 
     if within_trait_impl(&fn_) {
@@ -114,6 +114,14 @@ impl NewParameter {
             Some(it) => it.syntax().text_range().cover(self.original_expr.syntax().text_range()),
             None => self.original_expr.syntax().text_range(),
         }
+    }
+
+    fn parent_fn(&self) -> Option<ast::Fn> {
+        let fn_ = {
+            let node: &SyntaxNode = &self.original_expr.syntax();
+            node.ancestors().find_map(ast::Fn::cast)
+        }?;
+        Some(fn_)
     }
 
     fn name_and_ast(&self, ctx: &AssistContext<'_>) -> (String, ast::Param) {
@@ -288,10 +296,6 @@ fn within_trait_impl(fn_: &ast::Fn) -> bool {
         .and_then(|x| x.parent())
         .and_then(ast::Impl::cast)
         .map_or(false, |imp| imp.trait_().is_some())
-}
-
-fn parent_fn(node: &SyntaxNode) -> Option<ast::Fn> {
-    node.ancestors().find_map(ast::Fn::cast)
 }
 
 #[cfg(test)]
