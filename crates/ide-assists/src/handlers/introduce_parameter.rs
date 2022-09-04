@@ -47,19 +47,11 @@ use super::extract_variable::expr_to_extract;
 // }
 // ```
 pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<()> {
-    // - Find Expression to Extract
-    //   - This is the same as extract_variable for now
-    //   - Can filter list more later to exclude things that will definitely not compile
-    //   - Literals will always work
-    //   - Can't reference any locals not in param list
-    //   - How strict should we be about visibility?
-    //     - Is it better to generate easily fixable broken code, or refuse?
     let new_param = new_parameter(ctx)?;
 
-    // - Check if we're in a function body
     let fn_ = parent_fn(&new_param.original_expr.syntax())?;
     let fn_def = Definition::Function(ctx.sema.to_def(&fn_)?);
-    // - Can't be trait impl, but can be method
+
     if within_trait_impl(&fn_) {
         cov_mark::hit!(test_not_applicable_in_trait_impl);
         return None;
@@ -75,7 +67,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
 
             builder.make_mut(fn_).add_param(param.clone_for_update());
 
-            replace_expr_with_name_or_remove_let_stmt(builder, &new_param, &param_name);
+            update_original_declaration(builder, &new_param, &param_name);
 
             for (file_id, references) in fn_def.usages(&ctx.sema).all() {
                 let source_file = ctx.sema.parse(file_id);
@@ -244,7 +236,7 @@ fn suggest_name_for_param(ctx: &AssistContext<'_>, expr: &ast::Expr) -> String {
     suggest_name::for_variable(expr, &ctx.sema)
 }
 
-fn replace_expr_with_name_or_remove_let_stmt(
+fn update_original_declaration(
     builder: &mut SourceChangeBuilder,
     new_param: &NewParameter,
     param_name: &str,
