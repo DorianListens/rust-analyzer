@@ -54,7 +54,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     //   - Can't reference any locals not in param list
     //   - How strict should we be about visibility?
     //     - Is it better to generate easily fixable broken code, or refuse?
-    let (original_expr, ty, module) = new_parameter(ctx)?;
+    let NewParameter { original_expr, ty, module } = new_parameter(ctx)?;
 
     // - Check if we're in a function body
     let fn_ = parent_fn(&original_expr.syntax())?;
@@ -115,9 +115,19 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
     )
 }
 
-type NewParameter = (ast::Expr, hir::Type, hir::Module);
+struct NewParameter {
+    original_expr: ast::Expr,
+    ty: hir::Type,
+    module: hir::Module,
+}
 
-fn new_parameter(ctx: &AssistContext) -> Option<NewParameter> {
+impl NewParameter {
+    fn new(original_expr: ast::Expr, ty: hir::Type, module: hir::Module) -> Self {
+        Self { original_expr, ty, module }
+    }
+}
+
+fn new_parameter(ctx: &AssistContext<'_>) -> Option<NewParameter> {
     let original_expr = expr_to_extract(ctx, valid_target)?;
     let ty = ctx.sema.type_of_expr(&original_expr)?.adjusted();
     if ty.is_unit() {
@@ -125,7 +135,7 @@ fn new_parameter(ctx: &AssistContext) -> Option<NewParameter> {
         return None;
     }
     let module = ctx.sema.scope(&original_expr.syntax())?.module();
-    Some((original_expr, ty, module))
+    Some(NewParameter::new(original_expr, ty, module))
 }
 
 fn valid_target(node: SyntaxNode) -> Option<ast::Expr> {
