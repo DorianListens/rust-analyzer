@@ -120,10 +120,17 @@ impl NewParameter {
         }
     }
 
+    fn suggest_name(&self, ctx: &AssistContext<'_>) -> String {
+        if let Some(let_stmt) = self.parent_let_stmt() {
+            return let_stmt.pat().unwrap().to_string();
+        }
+        suggest_name::for_variable(&self.original_expr, &ctx.sema)
+    }
+
     fn name_and_ast(&self, ctx: &AssistContext<'_>) -> (String, ast::Param) {
         let param_name = match self.field_shorthand() {
             Some(it) => it.to_string(),
-            None => suggest_name_for_param(ctx, &self.original_expr),
+            None => self.suggest_name(ctx),
         };
         let param = make_param(ctx, &param_name, &self.ty, self.module);
         (param_name, param)
@@ -231,13 +238,6 @@ impl ManualEdit {
         };
         builder.replace(self.range_to_replace, replacement.to_string());
     }
-}
-
-fn suggest_name_for_param(ctx: &AssistContext<'_>, expr: &ast::Expr) -> String {
-    if let Some(let_stmt) = expr.syntax().parent().and_then(ast::LetStmt::cast) {
-        return let_stmt.pat().unwrap().to_string();
-    }
-    suggest_name::for_variable(expr, &ctx.sema)
 }
 
 fn update_original_declaration(
