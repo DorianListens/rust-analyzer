@@ -249,6 +249,7 @@ pub fn test_some_range(a: int) -> bool {
 
     expect![[r#"
         Convert integer base
+        Introduce Parameter
         Extract into variable
         Extract into function
         Replace if let with match
@@ -278,6 +279,7 @@ pub fn test_some_range(a: int) -> bool {
 
         expect![[r#"
             Convert integer base
+            Introduce Parameter
             Extract into variable
             Extract into function
             Replace if let with match
@@ -292,6 +294,7 @@ pub fn test_some_range(a: int) -> bool {
         let expected = labels(&assists);
 
         expect![[r#"
+            Introduce Parameter
             Extract into variable
             Extract into function
         "#]]
@@ -327,8 +330,24 @@ pub fn test_some_range(a: int) -> bool {
 
     {
         let assists = assists(&db, &cfg, AssistResolveStrategy::None, frange);
-        assert_eq!(2, assists.len());
+        assert_eq!(3, assists.len());
         let mut assists = assists.into_iter();
+
+        let introduce_parameter_assist = assists.next().unwrap();
+        expect![[r#"
+            Assist {
+                id: AssistId(
+                    "introduce_parameter",
+                    RefactorExtract,
+                ),
+                label: "Introduce Parameter",
+                group: None,
+                target: 59..60,
+                source_change: None,
+                trigger_signature_help: false,
+            }
+        "#]]
+        .assert_debug_eq(&introduce_parameter_assist);
 
         let extract_into_variable_assist = assists.next().unwrap();
         expect![[r#"
@@ -373,8 +392,24 @@ pub fn test_some_range(a: int) -> bool {
             }),
             frange,
         );
-        assert_eq!(2, assists.len());
+        assert_eq!(3, assists.len());
         let mut assists = assists.into_iter();
+
+        let introduce_parameter_assist = assists.next().unwrap();
+        expect![[r#"
+            Assist {
+                id: AssistId(
+                    "introduce_parameter",
+                    RefactorExtract,
+                ),
+                label: "Introduce Parameter",
+                group: None,
+                target: 59..60,
+                source_change: None,
+                trigger_signature_help: false,
+            }
+        "#]]
+        .assert_debug_eq(&introduce_parameter_assist);
 
         let extract_into_variable_assist = assists.next().unwrap();
         expect![[r#"
@@ -419,8 +454,24 @@ pub fn test_some_range(a: int) -> bool {
             }),
             frange,
         );
-        assert_eq!(2, assists.len());
+        assert_eq!(3, assists.len());
         let mut assists = assists.into_iter();
+
+        let introduce_parameter_assist = assists.next().unwrap();
+        expect![[r#"
+            Assist {
+                id: AssistId(
+                    "introduce_parameter",
+                    RefactorExtract,
+                ),
+                label: "Introduce Parameter",
+                group: None,
+                target: 59..60,
+                source_change: None,
+                trigger_signature_help: false,
+            }
+        "#]]
+        .assert_debug_eq(&introduce_parameter_assist);
 
         let extract_into_variable_assist = assists.next().unwrap();
         expect![[r#"
@@ -478,8 +529,53 @@ pub fn test_some_range(a: int) -> bool {
 
     {
         let assists = assists(&db, &cfg, AssistResolveStrategy::All, frange);
-        assert_eq!(2, assists.len());
+        assert_eq!(3, assists.len());
         let mut assists = assists.into_iter();
+
+        let introduce_parameter_assist = assists.next().unwrap();
+        expect![[r#"
+            Assist {
+                id: AssistId(
+                    "introduce_parameter",
+                    RefactorExtract,
+                ),
+                label: "Introduce Parameter",
+                group: None,
+                target: 59..60,
+                source_change: Some(
+                    SourceChange {
+                        source_file_edits: {
+                            FileId(
+                                0,
+                            ): TextEdit {
+                                indels: [
+                                    Indel {
+                                        insert: ",",
+                                        delete: 29..29,
+                                    },
+                                    Indel {
+                                        insert: " ",
+                                        delete: 29..29,
+                                    },
+                                    Indel {
+                                        insert: "var_name: i32",
+                                        delete: 29..29,
+                                    },
+                                    Indel {
+                                        insert: "var_name",
+                                        delete: 59..60,
+                                    },
+                                ],
+                            },
+                        },
+                        file_system_edits: [],
+                        is_snippet: false,
+                    },
+                ),
+                trigger_signature_help: false,
+            }
+        "#]]
+        .assert_debug_eq(&introduce_parameter_assist);
 
         let extract_into_variable_assist = assists.next().unwrap();
         expect![[r#"
@@ -517,7 +613,6 @@ pub fn test_some_range(a: int) -> bool {
             }
         "#]]
         .assert_debug_eq(&extract_into_variable_assist);
-
         let extract_into_function_assist = assists.next().unwrap();
         expect![[r#"
             Assist {
