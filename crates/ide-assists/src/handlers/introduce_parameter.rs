@@ -113,13 +113,8 @@ impl NewParameter {
         }
     }
 
-    fn name_and_ast(&self, ctx: &AssistContext<'_>) -> (String, ast::Param) {
-        let param_name = match self.field_shorthand() {
-            Some(it) => it.to_string(),
-            None => suggest_name_for_param(ctx, &self.original_expr),
-        };
-        let param = make_param(ctx, &param_name, &self.ty, self.module);
-        (param_name, param)
+    fn parent_let_stmt(&self) -> Option<ast::LetStmt> {
+        self.original_expr.syntax().parent().and_then(ast::LetStmt::cast)
     }
 
     fn original_range(&self) -> TextRange {
@@ -127,6 +122,15 @@ impl NewParameter {
             Some(it) => it.syntax().text_range().cover(self.original_expr.syntax().text_range()),
             None => self.original_expr.syntax().text_range(),
         }
+    }
+
+    fn name_and_ast(&self, ctx: &AssistContext<'_>) -> (String, ast::Param) {
+        let param_name = match self.field_shorthand() {
+            Some(it) => it.to_string(),
+            None => suggest_name_for_param(ctx, &self.original_expr),
+        };
+        let param = make_param(ctx, &param_name, &self.ty, self.module);
+        (param_name, param)
     }
 }
 
@@ -245,7 +249,7 @@ fn replace_expr_with_name_or_remove_let_stmt(
     new_param: &NewParameter,
     param_name: &str,
 ) {
-    if let Some(let_stmt) = new_param.original_expr.syntax().parent().and_then(ast::LetStmt::cast) {
+    if let Some(let_stmt) = new_param.parent_let_stmt() {
         remove_let_stmt(builder, let_stmt);
     } else {
         let expr_range = new_param.original_range();
