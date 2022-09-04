@@ -243,8 +243,7 @@ fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
     let text_range = let_stmt.syntax().text_range();
     let start = let_stmt
         .let_token()
-        .unwrap()
-        .prev_token()
+        .and_then(|it| it.prev_token())
         .and_then(|prev| {
             if prev.kind() == SyntaxKind::WHITESPACE {
                 Some(prev.text_range().start())
