@@ -109,15 +109,15 @@ impl NewParameter {
         self.original_expr.syntax().parent().and_then(ast::LetStmt::cast)
     }
 
+    fn parent_fn(&self) -> Option<ast::Fn> {
+        self.original_expr.syntax().ancestors().find_map(ast::Fn::cast)
+    }
+
     fn original_range(&self) -> TextRange {
         match self.field_shorthand() {
             Some(it) => it.syntax().text_range().cover(self.original_expr.syntax().text_range()),
             None => self.original_expr.syntax().text_range(),
         }
-    }
-
-    fn parent_fn(&self) -> Option<ast::Fn> {
-        self.original_expr.syntax().ancestors().find_map(ast::Fn::cast)
     }
 
     fn name_and_ast(&self, ctx: &AssistContext<'_>) -> (String, ast::Param) {
