@@ -47,7 +47,7 @@ use super::extract_variable::expr_to_extract;
 // }
 // ```
 pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<()> {
-    let new_param = new_parameter(ctx)?;
+    let new_param = NewParameter::from_ctx(ctx)?;
 
     let fn_ = new_param.parent_fn()?;
     let fn_def = Definition::Function(ctx.sema.to_def(&fn_)?);
@@ -94,8 +94,15 @@ struct NewParameter {
 }
 
 impl NewParameter {
-    fn new(original_expr: ast::Expr, ty: hir::Type, module: hir::Module) -> Self {
-        Self { original_expr, ty, module }
+    fn from_ctx(ctx: &AssistContext<'_>) -> Option<Self> {
+        let original_expr = expr_to_extract(ctx, valid_target)?;
+        let ty = ctx.sema.type_of_expr(&original_expr)?.adjusted();
+        if ty.is_unit() {
+            cov_mark::hit!(test_not_applicable_for_unit);
+            return None;
+        }
+        let module = ctx.sema.scope(&original_expr.syntax())?.module();
+        Some(Self { original_expr, ty, module })
     }
 
     fn field_shorthand(&self) -> Option<ast::NameRef> {
@@ -135,17 +142,6 @@ impl NewParameter {
         let param = make_param(ctx, &param_name, &self.ty, self.module);
         (param_name, param)
     }
-}
-
-fn new_parameter(ctx: &AssistContext<'_>) -> Option<NewParameter> {
-    let original_expr = expr_to_extract(ctx, valid_target)?;
-    let ty = ctx.sema.type_of_expr(&original_expr)?.adjusted();
-    if ty.is_unit() {
-        cov_mark::hit!(test_not_applicable_for_unit);
-        return None;
-    }
-    let module = ctx.sema.scope(&original_expr.syntax())?.module();
-    Some(NewParameter::new(original_expr, ty, module))
 }
 
 fn valid_target(node: SyntaxNode) -> Option<ast::Expr> {
