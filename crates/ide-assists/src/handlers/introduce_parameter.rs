@@ -75,7 +75,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             // - Pick name for parameter
             let field_shorthand = new_param.field_shorthand();
 
-            let (param_name, param) = name_and_ast(&field_shorthand, ctx, &new_param);
+            let (param_name, param) = name_and_ast(ctx, &field_shorthand, &new_param);
             builder.make_mut(fn_).add_param(param.clone_for_update());
 
             replace_expr_with_name_or_remove_let_stmt(
@@ -107,8 +107,8 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
 }
 
 fn name_and_ast(
-    field_shorthand: &Option<ast::NameRef>,
     ctx: &AssistContext<'_>,
+    field_shorthand: &Option<ast::NameRef>,
     new_param: &NewParameter,
 ) -> (String, ast::Param) {
     let param_name = match field_shorthand {
