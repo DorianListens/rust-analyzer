@@ -73,7 +73,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
                 builder.edit_file(file_id);
                 let call_sites: Vec<CallSite> = references
                     .iter()
-                    .filter_map(|usage| find_call_site(&ctx.sema, builder, &source_file, usage))
+                    .filter_map(|usage| CallSite::find(&ctx.sema, builder, &source_file, usage))
                     .collect();
 
                 for call_site in non_overlapping_changes(call_sites) {
@@ -196,33 +196,33 @@ fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
     builder.delete(TextRange::new(start, text_range.end()));
 }
 
-fn find_call_site(
-    sema: &Semantics<'_, RootDatabase>,
-    builder: &mut SourceChangeBuilder,
-    source_file: &syntax::SourceFile,
-    usage: &FileReference,
-) -> Option<CallSite> {
-    if let Some(macro_call) =
-        find_node_at_range::<ast::MacroCall>(source_file.syntax(), usage.range)
-    {
-        let call = sema.find_node_at_offset_with_descend::<ast::CallableExpr>(
-            macro_call.syntax(),
-            usage.range.end(),
-        )?;
-        let range = sema.original_range(call.syntax());
-        Some(CallSite::Macro(range.range, call))
-    } else {
-        let call = find_node_at_range(source_file.syntax(), usage.range)?;
-        Some(CallSite::Standard(builder.make_mut(call)))
-    }
-}
-
 enum CallSite {
     Macro(TextRange, ast::CallableExpr),
     Standard(ast::CallableExpr),
 }
 
 impl CallSite {
+    fn find(
+        sema: &Semantics<'_, RootDatabase>,
+        builder: &mut SourceChangeBuilder,
+        source_file: &syntax::SourceFile,
+        usage: &FileReference,
+    ) -> Option<CallSite> {
+        if let Some(macro_call) =
+            find_node_at_range::<ast::MacroCall>(source_file.syntax(), usage.range)
+        {
+            let call = sema.find_node_at_offset_with_descend::<ast::CallableExpr>(
+                macro_call.syntax(),
+                usage.range.end(),
+            )?;
+            let range = sema.original_range(call.syntax());
+            Some(CallSite::Macro(range.range, call))
+        } else {
+            let call = find_node_at_range(source_file.syntax(), usage.range)?;
+            Some(CallSite::Standard(builder.make_mut(call)))
+        }
+    }
+
     fn add_arg(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
         match self {
             CallSite::Macro(range_to_replace, call_expr) => {
