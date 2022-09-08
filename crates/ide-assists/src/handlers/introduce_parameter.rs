@@ -270,6 +270,7 @@ fn non_overlapping_changes(call_sites: Vec<CallSite>) -> Vec<CallSite> {
     call_sites.into_iter().fold(vec![], |mut acc, edit| {
         match edit {
             CallSite::Macro(range_to_replace, _) => {
+                cov_mark::hit!(test_nested_call_within_macro);
                 if !acc.iter().any(|it| it.overlaps_with(range_to_replace)) {
                     acc.push(edit)
                 }
@@ -630,6 +631,7 @@ fn main() {
 
     #[test]
     fn nested_call_within_macro_doesnt_work() {
+        cov_mark::check!(test_nested_call_within_macro);
         check_assist(
             introduce_parameter,
             r#"
