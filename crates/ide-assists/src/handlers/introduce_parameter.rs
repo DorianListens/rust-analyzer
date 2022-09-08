@@ -317,7 +317,7 @@ fn example_function() {
     }
 
     #[test]
-    fn basic_happy_path() {
+    fn literal_from_expr() {
         check_assist(
             introduce_parameter,
             r#"
@@ -326,7 +326,32 @@ fn main() {
 }
 
 fn example_function() {
-    $0let n = 1;$0
+    let m = $01$0 + 2;
+}
+            "#,
+            r#"
+fn main() {
+  example_function(1);
+}
+
+fn example_function(var_name: i32) {
+    let m = var_name + 2;
+}
+            "#,
+        )
+    }
+
+    #[test]
+    fn remove_let_statement() {
+        check_assist(
+            introduce_parameter,
+            r#"
+fn main() {
+  example_function();
+}
+
+fn example_function() {
+    let n = $01$0;
     let m = n + 2;
 }
             "#,
@@ -343,7 +368,7 @@ fn example_function(n: i32) {
     }
 
     #[test]
-    fn with_multiple_params() {
+    fn with_existing_params() {
         check_assist(
             introduce_parameter,
             r#"
@@ -369,7 +394,7 @@ fn example_function(a: i32, b: i32, n: i32) {
     }
 
     #[test]
-    fn strukt_impl() {
+    fn associated_fn() {
         check_assist(
             introduce_parameter,
             r#"
@@ -471,6 +496,32 @@ use crate::example_function;
 fn f() {
     example_function(1);
     example_function(1);
+}
+            "#,
+        )
+    }
+
+    #[test]
+    fn nested_call() {
+        check_assist(
+            introduce_parameter,
+            r#"
+fn main() {
+  foo(foo(1))
+}
+
+fn foo(x: i32) -> i32 {
+    $0let n = 1;$0
+    n + 2
+}
+            "#,
+            r#"
+fn main() {
+  foo(foo(1, 1), 1)
+}
+
+fn foo(x: i32, n: i32) -> i32 {
+    n + 2
 }
             "#,
         )
@@ -616,36 +667,6 @@ fn main() {
 }
 
 fn foo(n: i32) -> i32 {
-    n + 2
-}
-            "#,
-        )
-    }
-
-    #[test]
-    fn double_nested_call() {
-        check_assist(
-            introduce_parameter,
-            r#"
-fn main() {
-  foo(
-    foo(1)
-  )
-}
-
-fn foo(x: i32) -> i32 {
-    $0let n = 1;$0
-    n + 2
-}
-            "#,
-            r#"
-fn main() {
-  foo(
-    foo(1, 1), 1
-  )
-}
-
-fn foo(x: i32, n: i32) -> i32 {
     n + 2
 }
             "#,
