@@ -220,8 +220,7 @@ impl CallSite {
             let range = sema.original_range(call.syntax());
             Some(CallSite::Macro(range.range, call))
         } else {
-            let call = find_node_at_range(source_file.syntax(), usage.range)?;
-            Some(CallSite::Standard(call))
+            find_node_at_range(source_file.syntax(), usage.range).map(CallSite::Standard)
         }
     }
 
