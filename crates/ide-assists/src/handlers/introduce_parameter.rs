@@ -130,16 +130,7 @@ impl NewParameter {
     }
 
     fn name_and_ast(&self, ctx: &AssistContext<'_>) -> (String, ast::Param) {
-        let param_name = match self.field_shorthand() {
-            Some(it) => it.to_string(),
-            None => {
-                if let Some(let_stmt) = self.parent_let_stmt() {
-                    let_stmt.pat().unwrap().to_string()
-                } else {
-                    suggest_name::for_variable(&self.original_expr, &ctx.sema)
-                }
-            }
-        };
+        let param_name = self.param_name(ctx);
         let name = make::name(&param_name);
         let pat = make::ext::simple_ident_pat(name);
         let ty = (&self.ty)
@@ -149,6 +140,19 @@ impl NewParameter {
 
         let param = make::param(pat.into(), ty);
         (param_name, param)
+    }
+
+    fn param_name(&self, ctx: &AssistContext<'_>) -> String {
+        match self.field_shorthand() {
+            Some(it) => it.to_string(),
+            None => {
+                if let Some(let_stmt) = self.parent_let_stmt() {
+                    let_stmt.pat().unwrap().to_string()
+                } else {
+                    suggest_name::for_variable(&self.original_expr, &ctx.sema)
+                }
+            }
+        }
     }
 }
 
