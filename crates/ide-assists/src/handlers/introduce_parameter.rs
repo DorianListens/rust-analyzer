@@ -189,11 +189,10 @@ impl CallSite {
     fn add_arg_or_make_manual_edit(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
         match self {
             CallSite::Macro(range_to_replace, call_expr) => {
-                let manual_edit = ManualEdit { range_to_replace, call_expr };
                 {
-                    let args = manual_edit.call_expr.arg_list().map(|it| it.args()).unwrap();
+                    let args = call_expr.arg_list().map(|it| it.args()).unwrap();
                     let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
-                    let replacement = match manual_edit.call_expr {
+                    let replacement = match call_expr {
                         ast::CallableExpr::Call(call) => {
                             make::expr_call(call.expr().unwrap(), new_args)
                         }
@@ -203,7 +202,7 @@ impl CallSite {
                             new_args,
                         ),
                     };
-                    builder.replace(manual_edit.range_to_replace, replacement.to_string());
+                    builder.replace(range_to_replace, replacement.to_string());
                 };
             }
             CallSite::Standard(call) => {
@@ -233,13 +232,6 @@ fn non_overlapping_changes(changes: Vec<CallSite>) -> Vec<CallSite> {
         acc
     })
 }
-
-struct ManualEdit {
-    call_expr: ast::CallableExpr,
-    range_to_replace: TextRange,
-}
-
-impl ManualEdit {}
 
 fn update_original_declaration(
     builder: &mut SourceChangeBuilder,
