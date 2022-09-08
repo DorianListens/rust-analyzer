@@ -76,13 +76,8 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
                     .filter_map(|usage| find_call_site(&ctx.sema, builder, &source_file, usage))
                     .collect();
 
-                let manual_edits = call_sites
-                    .into_iter()
-                    .filter_map(|call| call.add_arg_or_make_manual_edit(&new_param.original_expr))
-                    .collect();
-
-                for edit in non_overlapping_edits(manual_edits) {
-                    edit.process(&new_param.original_expr, builder);
+                for call_site in non_overlapping_changes(call_sites) {
+                    call_site.add_arg_or_make_manual_edit(&new_param.original_expr, builder);
                 }
             }
         },
@@ -191,10 +186,16 @@ enum CallSite {
 }
 
 impl CallSite {
-    fn add_arg_or_make_manual_edit(self, expr: &ast::Expr) -> Option<ManualEdit> {
+    fn add_arg_or_make_manual_edit(
+        self,
+        expr: &ast::Expr,
+        builder: &mut SourceChangeBuilder,
+    ) -> Option<ManualEdit> {
         match self {
             CallSite::Macro(range_to_replace, call_expr) => {
-                Some(ManualEdit { range_to_replace, call_expr })
+                let manual_edit = ManualEdit { range_to_replace, call_expr };
+                manual_edit.process(expr, builder);
+                None
             }
             CallSite::Standard(call) => {
                 call.arg_list().map(|it| it.add_arg(expr.clone_for_update()));
@@ -202,13 +203,24 @@ impl CallSite {
             }
         }
     }
+
+    fn overlaps_with(&self, range: TextRange) -> bool {
+        match self {
+            CallSite::Macro(range_to_replace, _) => range_to_replace.contains_range(range),
+            CallSite::Standard(_) => false,
+        }
+    }
 }
 
-/// r-a panics if edits overlap
-fn non_overlapping_edits(edits: Vec<ManualEdit>) -> Vec<ManualEdit> {
-    edits.into_iter().fold(vec![], |mut acc, edit| {
-        if !acc.iter().any(|it| it.range_to_replace.contains_range(edit.range_to_replace)) {
-            acc.push(edit)
+fn non_overlapping_changes(changes: Vec<CallSite>) -> Vec<CallSite> {
+    changes.into_iter().fold(vec![], |mut acc, edit| {
+        match edit {
+            CallSite::Macro(range_to_replace, _) => {
+                if !acc.iter().any(|it| it.overlaps_with(range_to_replace)) {
+                    acc.push(edit)
+                }
+            }
+            CallSite::Standard(_) => acc.push(edit),
         }
         acc
     })
