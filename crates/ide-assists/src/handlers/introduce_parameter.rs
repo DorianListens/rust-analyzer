@@ -141,7 +141,19 @@ impl NewParameter {
             Some(it) => it.to_string(),
             None => self.suggest_name(ctx),
         };
-        let param = make_param(ctx, &param_name, &self.ty, self.module);
+        let param = {
+            let param_name: &str = &param_name;
+            let ty = &self.ty;
+            let module = self.module;
+            let name = make::name(&param_name);
+            let pat = make::ext::simple_ident_pat(name);
+            let ty = ty
+                .display_source_code(ctx.db(), module.into())
+                .map(|it| make::ty(&it))
+                .unwrap_or_else(|_| make::ty_placeholder());
+
+            make::param(pat.into(), ty)
+        };
         (param_name, param)
     }
 }
@@ -253,22 +265,6 @@ fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
         })
         .unwrap_or(text_range.start());
     builder.delete(TextRange::new(start, text_range.end()));
-}
-
-fn make_param(
-    ctx: &AssistContext<'_>,
-    param_name: &str,
-    ty: &hir::Type,
-    module: hir::Module,
-) -> ast::Param {
-    let name = make::name(&param_name);
-    let pat = make::ext::simple_ident_pat(name);
-    let ty = ty
-        .display_source_code(ctx.db(), module.into())
-        .map(|it| make::ty(&it))
-        .unwrap_or_else(|_| make::ty_placeholder());
-
-    make::param(pat.into(), ty)
 }
 
 fn within_trait_impl(fn_: &ast::Fn) -> bool {
