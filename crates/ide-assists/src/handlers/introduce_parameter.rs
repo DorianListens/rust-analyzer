@@ -180,10 +180,7 @@ fn find_call_site(
         let range = sema.original_range(call.syntax());
         Some(CallSite::Macro(range.range, call))
     } else {
-        let call = sema.find_node_at_offset_with_descend::<ast::CallableExpr>(
-            source_file.syntax(),
-            usage.range.end(),
-        )?;
+        let call = find_node_at_range::<ast::CallableExpr>(source_file.syntax(), usage.range)?;
         Some(CallSite::Standard(builder.make_mut(call)))
     }
 }
