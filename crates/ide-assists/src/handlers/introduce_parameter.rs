@@ -622,7 +622,7 @@ fn main() {
     }
 
     #[test]
-    fn nested_method_call_within_macro() {
+    fn nested_call_within_macro_doesnt_work() {
         check_assist(
             introduce_parameter,
             r#"
@@ -634,18 +634,14 @@ macro_rules! vec {
            v
     }};
 }
-struct Struct;
-impl Struct {
-    fn bar(v: Vec<i32>) {}
-}
 fn main() {
-  let strukt = Struct;
-  strukt.bar(vec![foo(), foo()])
+  // Ideally, this should become foo(foo(1, 1), 1)
+  vec![foo(foo(1))]
 }
 
-fn foo() -> i32 {
+fn foo(x: i32) -> i32 {
     $0let n = 1;$0
-    n + 2
+    n + x
 }
             "#,
             r#"
@@ -657,17 +653,13 @@ macro_rules! vec {
            v
     }};
 }
-struct Struct;
-impl Struct {
-    fn bar(v: Vec<i32>) {}
-}
 fn main() {
-  let strukt = Struct;
-  strukt.bar(vec![foo(1), foo(1)])
+  // Ideally, this should become foo(foo(1, 1), 1)
+  vec![foo(foo(1), 1)]
 }
 
-fn foo(n: i32) -> i32 {
-    n + 2
+fn foo(x: i32, n: i32) -> i32 {
+    n + x
 }
             "#,
         )
