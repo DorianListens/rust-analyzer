@@ -77,7 +77,7 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
                     .collect();
 
                 for call_site in non_overlapping_changes(call_sites) {
-                    call_site.add_arg_or_make_manual_edit(&new_param.original_expr, builder);
+                    call_site.add_arg(&new_param.original_expr, builder);
                 }
             }
         },
@@ -186,7 +186,7 @@ enum CallSite {
 }
 
 impl CallSite {
-    fn add_arg_or_make_manual_edit(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
+    fn add_arg(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
         match self {
             CallSite::Macro(range_to_replace, call_expr) => {
                 let args = call_expr.arg_list().map(|it| it.args()).unwrap();
