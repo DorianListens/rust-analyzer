@@ -159,6 +159,43 @@ fn valid_target(node: SyntaxNode) -> Option<ast::Expr> {
     }
 }
 
+fn within_trait_impl(fn_: &ast::Fn) -> bool {
+    fn_.syntax()
+        .parent() // AssocItemList
+        .and_then(|x| x.parent())
+        .and_then(ast::Impl::cast)
+        .map_or(false, |imp| imp.trait_().is_some())
+}
+
+fn update_original_declaration(
+    builder: &mut SourceChangeBuilder,
+    new_param: &NewParameter,
+    param_name: &str,
+) {
+    if let Some(let_stmt) = new_param.parent_let_stmt() {
+        remove_let_stmt(builder, let_stmt);
+    } else {
+        let expr_range = new_param.original_range();
+        builder.replace(expr_range, param_name);
+    }
+}
+
+fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
+    let text_range = let_stmt.syntax().text_range();
+    let start = let_stmt
+        .let_token()
+        .and_then(|it| it.prev_token())
+        .and_then(|prev| {
+            if prev.kind() == SyntaxKind::WHITESPACE {
+                Some(prev.text_range().start())
+            } else {
+                None
+            }
+        })
+        .unwrap_or(text_range.start());
+    builder.delete(TextRange::new(start, text_range.end()));
+}
+
 fn find_call_site(
     sema: &Semantics<'_, RootDatabase>,
     builder: &mut SourceChangeBuilder,
@@ -234,44 +271,6 @@ fn non_overlapping_changes(call_sites: Vec<CallSite>) -> Vec<CallSite> {
         acc
     })
 }
-
-fn update_original_declaration(
-    builder: &mut SourceChangeBuilder,
-    new_param: &NewParameter,
-    param_name: &str,
-) {
-    if let Some(let_stmt) = new_param.parent_let_stmt() {
-        remove_let_stmt(builder, let_stmt);
-    } else {
-        let expr_range = new_param.original_range();
-        builder.replace(expr_range, param_name);
-    }
-}
-
-fn remove_let_stmt(builder: &mut SourceChangeBuilder, let_stmt: ast::LetStmt) {
-    let text_range = let_stmt.syntax().text_range();
-    let start = let_stmt
-        .let_token()
-        .and_then(|it| it.prev_token())
-        .and_then(|prev| {
-            if prev.kind() == SyntaxKind::WHITESPACE {
-                Some(prev.text_range().start())
-            } else {
-                None
-            }
-        })
-        .unwrap_or(text_range.start());
-    builder.delete(TextRange::new(start, text_range.end()));
-}
-
-fn within_trait_impl(fn_: &ast::Fn) -> bool {
-    fn_.syntax()
-        .parent() // AssocItemList
-        .and_then(|x| x.parent())
-        .and_then(ast::Impl::cast)
-        .map_or(false, |imp| imp.trait_().is_some())
-}
-
 #[cfg(test)]
 mod tests {
     use crate::tests::{check_assist, check_assist_not_applicable};
