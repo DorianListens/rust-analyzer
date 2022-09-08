@@ -1829,7 +1829,7 @@ fn format_type(ty: &hir::Type, ctx: &AssistContext<'_>, module: hir::Module) -> 
     ty.display_source_code(ctx.db(), module.into()).ok().unwrap_or_else(|| "_".to_string())
 }
 
-pub(crate) fn make_ty(ty: &hir::Type, ctx: &AssistContext<'_>, module: hir::Module) -> ast::Type {
+fn make_ty(ty: &hir::Type, ctx: &AssistContext<'_>, module: hir::Module) -> ast::Type {
     let ty_str = format_type(ty, ctx, module);
     make::ty(&ty_str)
 }
