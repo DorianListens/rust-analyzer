@@ -190,7 +190,21 @@ impl CallSite {
         match self {
             CallSite::Macro(range_to_replace, call_expr) => {
                 let manual_edit = ManualEdit { range_to_replace, call_expr };
-                manual_edit.process(expr, builder);
+                {
+                    let args = manual_edit.call_expr.arg_list().map(|it| it.args()).unwrap();
+                    let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
+                    let replacement = match manual_edit.call_expr {
+                        ast::CallableExpr::Call(call) => {
+                            make::expr_call(call.expr().unwrap(), new_args)
+                        }
+                        ast::CallableExpr::MethodCall(call) => make::expr_method_call(
+                            call.receiver().unwrap(),
+                            call.name_ref().unwrap(),
+                            new_args,
+                        ),
+                    };
+                    builder.replace(manual_edit.range_to_replace, replacement.to_string());
+                };
             }
             CallSite::Standard(call) => {
                 call.arg_list().map(|it| it.add_arg(expr.clone_for_update()));
@@ -225,19 +239,7 @@ struct ManualEdit {
     range_to_replace: TextRange,
 }
 
-impl ManualEdit {
-    fn process(self, new_arg: &ast::Expr, builder: &mut SourceChangeBuilder) {
-        let args = self.call_expr.arg_list().map(|it| it.args()).unwrap();
-        let new_args = make::arg_list(args.chain(iter::once(new_arg.clone())));
-        let replacement = match self.call_expr {
-            ast::CallableExpr::Call(call) => make::expr_call(call.expr().unwrap(), new_args),
-            ast::CallableExpr::MethodCall(call) => {
-                make::expr_method_call(call.receiver().unwrap(), call.name_ref().unwrap(), new_args)
-            }
-        };
-        builder.replace(self.range_to_replace, replacement.to_string());
-    }
-}
+impl ManualEdit {}
 
 fn update_original_declaration(
     builder: &mut SourceChangeBuilder,
