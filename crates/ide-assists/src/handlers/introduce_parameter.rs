@@ -189,21 +189,19 @@ impl CallSite {
     fn add_arg_or_make_manual_edit(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
         match self {
             CallSite::Macro(range_to_replace, call_expr) => {
-                {
-                    let args = call_expr.arg_list().map(|it| it.args()).unwrap();
-                    let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
-                    let replacement = match call_expr {
-                        ast::CallableExpr::Call(call) => {
-                            make::expr_call(call.expr().unwrap(), new_args)
-                        }
-                        ast::CallableExpr::MethodCall(call) => make::expr_method_call(
-                            call.receiver().unwrap(),
-                            call.name_ref().unwrap(),
-                            new_args,
-                        ),
-                    };
-                    builder.replace(range_to_replace, replacement.to_string());
+                let args = call_expr.arg_list().map(|it| it.args()).unwrap();
+                let new_args = make::arg_list(args.chain(iter::once(expr.clone())));
+                let replacement = match call_expr {
+                    ast::CallableExpr::Call(call) => {
+                        make::expr_call(call.expr().unwrap(), new_args)
+                    }
+                    ast::CallableExpr::MethodCall(call) => make::expr_method_call(
+                        call.receiver().unwrap(),
+                        call.name_ref().unwrap(),
+                        new_args,
+                    ),
                 };
+                builder.replace(range_to_replace, replacement.to_string());
             }
             CallSite::Standard(call) => {
                 call.arg_list().map(|it| it.add_arg(expr.clone_for_update()));
