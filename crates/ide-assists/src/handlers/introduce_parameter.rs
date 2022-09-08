@@ -186,20 +186,14 @@ enum CallSite {
 }
 
 impl CallSite {
-    fn add_arg_or_make_manual_edit(
-        self,
-        expr: &ast::Expr,
-        builder: &mut SourceChangeBuilder,
-    ) -> Option<ManualEdit> {
+    fn add_arg_or_make_manual_edit(self, expr: &ast::Expr, builder: &mut SourceChangeBuilder) {
         match self {
             CallSite::Macro(range_to_replace, call_expr) => {
                 let manual_edit = ManualEdit { range_to_replace, call_expr };
                 manual_edit.process(expr, builder);
-                None
             }
             CallSite::Standard(call) => {
                 call.arg_list().map(|it| it.add_arg(expr.clone_for_update()));
-                None
             }
         }
     }
