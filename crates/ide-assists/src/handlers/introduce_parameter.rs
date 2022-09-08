@@ -435,7 +435,7 @@ impl Foo {
     }
 
     #[test]
-    fn multiple_files() {
+    fn multiple_edits_in_multiple_files() {
         check_assist(
             introduce_parameter,
             r#"
@@ -471,40 +471,6 @@ use crate::example_function;
 fn f() {
     example_function(1);
     example_function(1);
-}
-            "#,
-        )
-    }
-
-    #[test]
-    fn nested_call() {
-        check_assist(
-            introduce_parameter,
-            r#"
-fn main() {
-  bar(
-    foo()
-  )
-}
-
-fn bar(n: i32) {}
-
-fn foo() -> i32 {
-    $0let n = 1;$0
-    n + 2
-}
-            "#,
-            r#"
-fn main() {
-  bar(
-    foo(1)
-  )
-}
-
-fn bar(n: i32) {}
-
-fn foo(n: i32) -> i32 {
-    n + 2
 }
             "#,
         )
@@ -578,10 +544,8 @@ impl Struct {
 }
 fn main() {
   let strukt = Struct;
-  bar(vec![strukt.foo(), strukt.foo()])
+  vec![strukt.foo()]
 }
-
-fn bar(v: Vec<i32>) {}
             "#,
             r#"
 struct Vec<T>;
@@ -600,10 +564,8 @@ impl Struct {
 }
 fn main() {
   let strukt = Struct;
-  bar(vec![strukt.foo(1), strukt.foo(1)])
+  vec![strukt.foo(1)]
 }
-
-fn bar(v: Vec<i32>) {}
             "#,
         )
     }
@@ -693,5 +655,4 @@ fn foo(x: i32, n: i32) -> i32 {
     // Next Steps
     // - Support cursor
     // - Support Ref + Mut
-    // - Filter out some exprs that won't work
 }
