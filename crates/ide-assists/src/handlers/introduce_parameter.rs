@@ -217,6 +217,10 @@ impl CallSite {
     }
 }
 
+/// When a callsite is detected within a macro invocation, we need to manually
+/// update it using the `builder.replace` API. This API does not support changes
+/// that overlap, so in the case that there is a nested function call within a
+/// macro invocation, we can only process one of the invocations.
 fn non_overlapping_changes(call_sites: Vec<CallSite>) -> Vec<CallSite> {
     call_sites.into_iter().fold(vec![], |mut acc, edit| {
         match edit {
