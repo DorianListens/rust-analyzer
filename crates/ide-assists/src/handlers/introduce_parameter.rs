@@ -217,8 +217,8 @@ impl CallSite {
     }
 }
 
-fn non_overlapping_changes(changes: Vec<CallSite>) -> Vec<CallSite> {
-    changes.into_iter().fold(vec![], |mut acc, edit| {
+fn non_overlapping_changes(call_sites: Vec<CallSite>) -> Vec<CallSite> {
+    call_sites.into_iter().fold(vec![], |mut acc, edit| {
         match edit {
             CallSite::Macro(range_to_replace, _) => {
                 if !acc.iter().any(|it| it.overlaps_with(range_to_replace)) {
