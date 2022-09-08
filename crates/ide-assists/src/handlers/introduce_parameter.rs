@@ -66,14 +66,16 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
             let (param_name, param) = new_param.name_and_ast(ctx);
 
             builder.make_mut(fn_).add_param(param.clone_for_update());
+
             update_original_declaration(builder, &new_param, &param_name);
 
             for (file_id, references) in fn_def.usages(&ctx.sema).all() {
                 let source_file = ctx.sema.parse(file_id);
                 builder.edit_file(file_id);
+
                 let call_sites: Vec<CallSite> = references
                     .iter()
-                    .filter_map(|usage| CallSite::find(&ctx.sema, &source_file, usage))
+                    .filter_map(|usage| CallSite::from_usage(&ctx.sema, &source_file, usage))
                     .map(|it| it.make_mut(builder))
                     .collect();
 
@@ -203,7 +205,7 @@ enum CallSite {
 }
 
 impl CallSite {
-    fn find(
+    fn from_usage(
         sema: &Semantics<'_, RootDatabase>,
         source_file: &syntax::SourceFile,
         usage: &FileReference,
