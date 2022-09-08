@@ -73,7 +73,8 @@ pub(crate) fn introduce_parameter(acc: &mut Assists, ctx: &AssistContext<'_>) ->
                 builder.edit_file(file_id);
                 let call_sites: Vec<CallSite> = references
                     .iter()
-                    .filter_map(|usage| CallSite::find(&ctx.sema, builder, &source_file, usage))
+                    .filter_map(|usage| CallSite::find(&ctx.sema, &source_file, usage))
+                    .map(|it| it.make_mut(builder))
                     .collect();
 
                 for call_site in non_overlapping_changes(call_sites) {
@@ -204,7 +205,6 @@ enum CallSite {
 impl CallSite {
     fn find(
         sema: &Semantics<'_, RootDatabase>,
-        builder: &mut SourceChangeBuilder,
         source_file: &syntax::SourceFile,
         usage: &FileReference,
     ) -> Option<CallSite> {
@@ -219,7 +219,14 @@ impl CallSite {
             Some(CallSite::Macro(range.range, call))
         } else {
             let call = find_node_at_range(source_file.syntax(), usage.range)?;
-            Some(CallSite::Standard(builder.make_mut(call)))
+            Some(CallSite::Standard(call))
+        }
+    }
+
+    fn make_mut(self, builder: &mut SourceChangeBuilder) -> CallSite {
+        match self {
+            CallSite::Macro(..) => self,
+            CallSite::Standard(call) => CallSite::Standard(builder.make_mut(call)),
         }
     }
 
