@@ -1,6 +1,6 @@
 use std::iter;
 
-use hir::{HirDisplay, Semantics};
+use hir::Semantics;
 use ide_db::{
     assists::{AssistId, AssistKind},
     defs::Definition,
@@ -16,7 +16,7 @@ use syntax::{
 
 use crate::{
     assist_context::{AssistContext, Assists},
-    utils::suggest_name,
+    utils::{make_ty, suggest_name},
 };
 
 use super::extract_variable::expr_to_extract;
@@ -131,10 +131,7 @@ impl NewParameter {
         let param_name = self.param_name(ctx);
         let name = make::name(&param_name);
         let pat = make::ext::simple_ident_pat(name);
-        let ty = (&self.ty)
-            .display_source_code(ctx.db(), self.module.into())
-            .map(|it| make::ty(&it))
-            .unwrap_or_else(|_| make::ty_placeholder());
+        let ty = make_ty(&self.ty, ctx.db(), self.module);
 
         let param = make::param(pat.into(), ty);
         (param_name, param)

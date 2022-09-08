@@ -2,9 +2,7 @@ use std::iter;
 
 use ast::make;
 use either::Either;
-use hir::{
-    HasSource, HirDisplay, InFile, Local, ModuleDef, PathResolution, Semantics, TypeInfo, TypeParam,
-};
+use hir::{HasSource, InFile, Local, ModuleDef, PathResolution, Semantics, TypeInfo, TypeParam};
 use ide_db::{
     defs::{Definition, NameRefClass},
     famous_defs::FamousDefs,
@@ -29,7 +27,7 @@ use syntax::{
 
 use crate::{
     assist_context::{AssistContext, Assists, TreeMutator},
-    utils::generate_impl_text,
+    utils::{generate_impl_text, make_ty},
     AssistId,
 };
 
@@ -440,7 +438,7 @@ impl Param {
             }
         };
 
-        let ty = make_ty(&self.ty, ctx, module);
+        let ty = make_ty(&self.ty, ctx.db(), module);
         let ty = match self.kind() {
             ParamKind::Value | ParamKind::MutValue => ty,
             ParamKind::SharedRef => make::ty_ref(ty, false),
@@ -1627,7 +1625,7 @@ impl Function {
                 let handler_ty = parent_ret_ty
                     .type_arguments()
                     .nth(1)
-                    .map(|ty| make_ty(&ty, ctx, module))
+                    .map(|ty| make_ty(&ty, ctx.db(), module))
                     .unwrap_or_else(make::ty_placeholder);
                 make::ext::ty_result(fun_ty.make_ty(ctx, module), handler_ty)
             }
@@ -1635,7 +1633,7 @@ impl Function {
             FlowHandler::IfOption { action } => {
                 let handler_ty = action
                     .expr_ty(ctx)
-                    .map(|ty| make_ty(&ty, ctx, module))
+                    .map(|ty| make_ty(&ty, ctx.db(), module))
                     .unwrap_or_else(make::ty_placeholder);
                 make::ext::ty_option(handler_ty)
             }
@@ -1643,7 +1641,7 @@ impl Function {
             FlowHandler::MatchResult { err } => {
                 let handler_ty = err
                     .expr_ty(ctx)
-                    .map(|ty| make_ty(&ty, ctx, module))
+                    .map(|ty| make_ty(&ty, ctx.db(), module))
                     .unwrap_or_else(make::ty_placeholder);
                 make::ext::ty_result(fun_ty.make_ty(ctx, module), handler_ty)
             }
@@ -1656,7 +1654,7 @@ impl FunType {
     fn make_ty(&self, ctx: &AssistContext<'_>, module: hir::Module) -> ast::Type {
         match self {
             FunType::Unit => make::ty_unit(),
-            FunType::Single(ty) => make_ty(ty, ctx, module),
+            FunType::Single(ty) => make_ty(ty, ctx.db(), module),
             FunType::Tuple(types) => match types.as_slice() {
                 [] => {
                     stdx::never!("tuple type with 0 elements");
@@ -1664,10 +1662,10 @@ impl FunType {
                 }
                 [ty] => {
                     stdx::never!("tuple type with 1 element");
-                    make_ty(ty, ctx, module)
+                    make_ty(ty, ctx.db(), module)
                 }
                 types => {
-                    let types = types.iter().map(|ty| make_ty(ty, ctx, module));
+                    let types = types.iter().map(|ty| make_ty(ty, ctx.db(), module));
                     make::ty_tuple(types)
                 }
             },
@@ -1823,15 +1821,6 @@ fn with_tail_expr(block: ast::BlockExpr, tail_expr: ast::Expr) -> ast::BlockExpr
     let stmt_tail = block.tail_expr().map(|expr| make::expr_stmt(expr).into());
     let stmts = block.statements().chain(stmt_tail);
     make::block_expr(stmts, Some(tail_expr))
-}
-
-fn format_type(ty: &hir::Type, ctx: &AssistContext<'_>, module: hir::Module) -> String {
-    ty.display_source_code(ctx.db(), module.into()).ok().unwrap_or_else(|| "_".to_string())
-}
-
-fn make_ty(ty: &hir::Type, ctx: &AssistContext<'_>, module: hir::Module) -> ast::Type {
-    let ty_str = format_type(ty, ctx, module);
-    make::ty(&ty_str)
 }
 
 fn rewrite_body_segment(

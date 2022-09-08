@@ -701,3 +701,10 @@ pub(crate) fn convert_param_list_to_arg_list(list: ast::ParamList) -> ast::ArgLi
     }
     make::arg_list(args)
 }
+
+/// An ast representation of the given hir type, or a placeholder if the type is un-nameable.
+pub(crate) fn make_ty(ty: &hir::Type, db: &dyn HirDatabase, module: hir::Module) -> ast::Type {
+    ty.display_source_code(db, module.into())
+        .map(|it| make::ty(&it))
+        .unwrap_or_else(|_| make::ty_placeholder())
+}
