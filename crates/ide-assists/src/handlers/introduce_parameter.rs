@@ -141,19 +141,14 @@ impl NewParameter {
             Some(it) => it.to_string(),
             None => self.suggest_name(ctx),
         };
-        let param = {
-            let param_name: &str = &param_name;
-            let ty = &self.ty;
-            let module = self.module;
-            let name = make::name(&param_name);
-            let pat = make::ext::simple_ident_pat(name);
-            let ty = ty
-                .display_source_code(ctx.db(), module.into())
-                .map(|it| make::ty(&it))
-                .unwrap_or_else(|_| make::ty_placeholder());
+        let name = make::name(&param_name);
+        let pat = make::ext::simple_ident_pat(name);
+        let ty = (&self.ty)
+            .display_source_code(ctx.db(), self.module.into())
+            .map(|it| make::ty(&it))
+            .unwrap_or_else(|_| make::ty_placeholder());
 
-            make::param(pat.into(), ty)
-        };
+        let param = make::param(pat.into(), ty);
         (param_name, param)
     }
 }
